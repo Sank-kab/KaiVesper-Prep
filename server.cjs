@@ -9,6 +9,8 @@ const {resolveWindowsNup, nupEnv, inspectSw1Folder, VENV_DIR, DEFAULT_OUT_BASE} 
 const {
   DEFAULT_PATCHED_DIR,
   detectDocker,
+  detectWslNode,
+  toWslPath,
   inspectKaihenDir,
   listLanIps,
   findNs2jbDir,
@@ -240,20 +242,51 @@ async function launchKaihen({kaihenDir, ip, ns2jbDir}) {
     return;
   }
 
-  const henScript = path.join(resolvedNs2jb, 'hen.cjs');
-  const args = [henScript, '--dir', targetDir];
-  if (ip && String(ip).trim()) args.push(String(ip).trim());
-
-  pushKaihenLog('info', `Launching kaiHEN natively on Windows: node hen.cjs --dir "${targetDir}"${ip ? ' ' + ip : ''}`);
   if (!info.patched) {
     pushKaihenLog('info', 'Note: This folder does not contain .kaivesper-patched.json (if stock kaiHEN, use "Patch & Build kaiHEN" first for on-console Hot-Swap!).');
   }
 
-  const proc = spawn(process.execPath, args, {
-    cwd: resolvedNs2jb,
-    windowsHide: true,
-    stdio: ['pipe', 'pipe', 'pipe']
-  });
+  let proc;
+  if (process.platform === 'win32') {
+    const wslNode = await detectWslNode();
+    if (!wslNode.ok) {
+      kaihenJob.status = 'error';
+      pushKaihenLog('stderr', 'WSL2 with Node.js is required to run ns2jb (hen.cjs) on Windows because ns2jb uses Linux Unix domain sockets (.sock).');
+      pushKaihenLog('stderr', 'Install WSL2 (wsl --install) and Node.js 18+ inside WSL, then try Launch kaiHEN again.');
+      broadcast('kaihen-state', getKaihenState());
+      return;
+    }
+    const wslNs2jbSrc = toWslPath(resolvedNs2jb);
+    const wslTargetDir = toWslPath(targetDir);
+    const ipArg = (ip && String(ip).trim()) ? String(ip).trim() : '';
+    const prefix = wslNode.distro ? ['-d', wslNode.distro, '--'] : ['--'];
+    const shq = s => "'" + String(s).replace(/'/g, "'\\''") + "'";
+    const script = [
+      '#!/bin/bash',
+      'set -eu',
+      'mkdir -p "$HOME/.kaivesper-prep/ns2jb"',
+      'cp -ru ' + shq(wslNs2jbSrc) + '/. "$HOME/.kaivesper-prep/ns2jb/"',
+      'cd "$HOME/.kaivesper-prep/ns2jb"',
+      'exec ' + shq(wslNode.nodeBin) + ' hen.cjs --dir ' + shq(wslTargetDir) + (ipArg ? ' ' + shq(ipArg) : '')
+    ].join('\n') + '\n';
+    const scriptWin = path.join(require('node:os').tmpdir(), 'kv-launch-kaihen.sh');
+    fs.writeFileSync(scriptWin, script, {encoding: 'utf8'});
+    pushKaihenLog('info', `Launching kaiHEN via WSL (${wslNode.version}): node hen.cjs --dir "${wslTargetDir}"${ipArg ? ' ' + ipArg : ''}`);
+    proc = spawn('wsl.exe', [...prefix, 'bash', toWslPath(scriptWin)], {
+      windowsHide: true,
+      stdio: ['pipe', 'pipe', 'pipe']
+    });
+  } else {
+    const henScript = path.join(resolvedNs2jb, 'hen.cjs');
+    const args = [henScript, '--dir', targetDir];
+    if (ip && String(ip).trim()) args.push(String(ip).trim());
+    pushKaihenLog('info', `Launching kaiHEN: node hen.cjs --dir "${targetDir}"${ip ? ' ' + ip : ''}`);
+    proc = spawn(process.execPath, args, {
+      cwd: resolvedNs2jb,
+      windowsHide: true,
+      stdio: ['pipe', 'pipe', 'pipe']
+    });
+  }
   kaihenJob.proc = proc;
   proc.stdout.on('data', d => pushKaihenLog('stdout', d));
   proc.stderr.on('data', d => pushKaihenLog('stderr', d));

@@ -55,7 +55,7 @@ window.KVP_I18N = {
     phKhOutDir: 'Blank = %USERPROFILE%\\.kaivesper-prep\\kaiHEN-20261117.1-kaivesper-patched',
     btnKhPatch: 'Patch & Build kaiHEN',
     khLaunchTitle: '2. Launch Patched kaiHEN (Native Windows)',
-    khLaunchDesc: 'Runs <code>ns2jb</code> (<code>hen.cjs</code>) natively on Windows (auto-downloads <code>ns2jb</code> on first launch — zero WSL required). Start with <strong>SmileBASIC</strong> open at its Direct-mode prompt on Switch 2.',
+    khLaunchDesc: 'Runs <code>ns2jb</code> (<code>hen.cjs</code>) via WSL2 + Node.js (auto-downloads <code>ns2jb</code> on first launch). Start with <strong>SmileBASIC</strong> open at its Direct-mode prompt on Switch 2.',
     lblKhLaunchDir: 'Patched kaiHEN folder to launch',
     phKhLaunchDir: 'Auto-filled after Patch & Build (or pick an existing patched kaiHEN folder)',
     lblKhIp: 'PC LAN IP (reachable by Switch 2)',

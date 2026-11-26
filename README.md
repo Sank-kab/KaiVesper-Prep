@@ -22,7 +22,7 @@
 ## Overview
 
 **KaiVesper Prep** is a lightweight, **100% native Windows** companion app for **[KaiVesper](https://github.com/Sank-kab/KaiVesper)** (`kaivesper.nro`):
-- **Zero WSL required** for `.nup` extraction, `ExeFS / RomFS` installation, and **launching `kaiHEN`**
+- **Zero WSL required** for `.nup` extraction and `ExeFS / RomFS` installation (WSL2 is only used by **`Launch kaiHEN`**)
 - **Zero `npm install` / zero external Node dependencies**
 - **1-Click Patched `kaiHEN` Builder & Native Windows Launcher** built right in
 - **Zero Host setup on PC** — profiles are automatically placed into `/ns2jb-modloader/sw2/` or `/sw1/` on your MicroSD with `main.npdm` cleanly skipped, so you choose your Host title directly on Switch 2 inside **KaiVesper → Hosts**!
@@ -42,7 +42,7 @@
    - Automatically skips `main.npdm`, inspects NPDM architecture (`64-bit` vs `32-bit` & `SystemResourceSize`), auto-patches `MountTemporaryStorage` if needed, and optionally packs loose `romfs/` into `romfs.bin` on PC for instant loading on Switch 2.
 3. **Tab 3 — `kaiHEN (Patch & Launch)`:**
    - **1-Click `Patch & Build kaiHEN`:** automatically downloads `ouncebrew/kaihen` (`20261117.1`) and the 3 public `ro:dmnt` FS helper patches from `nicholasyoannou/switch2-modbridge` (`kaihen/patches/*.patch`), compiles `ro/main`, `hen/main`, and `bootstrap.bin` inside Docker (`ounce-devkit:latest`, auto-built on first run if missing), and assembles a ready-to-launch patched kaiHEN folder (`%USERPROFILE%\.kaivesper-prep\kaiHEN-20261117.1-kaivesper-patched` by default).
-   - **1-Click `Launch kaiHEN` (Native Windows):** automatically downloads `ns2jb` (`hen.cjs` / `run.cjs`) on first launch and runs it natively on Windows with a **PC LAN IP selector**, live **SmileBASIC Direct-mode `V=START(...)` command banner** (+ Copy button), interactive **stdin** input, and an automatic **`kaiHEN Active!`** status indicator.
+   - **1-Click `Launch kaiHEN` (via WSL2):** automatically downloads `ns2jb` (`hen.cjs` / `run.cjs`) on first launch and runs it cleanly via **WSL2 + Node.js** (required because `ns2jb` uses Linux Unix domain sockets `.sock`), with a **PC LAN IP selector**, live **SmileBASIC Direct-mode `V=START(...)` command banner** (+ Copy button), interactive **stdin** input, and an automatic **`kaiHEN Active!`** status indicator.
 4. **6-Language Interface (English default):**
    - English, Italiano, Español, Français, Deutsch, 日本語 (persisted in browser storage).
 5. **Native Windows Ergonomics:**
@@ -54,7 +54,8 @@
 
 1. **Node.js 18 or newer (LTS)** — https://nodejs.org
 2. **Python 3.9 or newer** — https://www.python.org/downloads/ *(required for `.nup` extraction and PC-side `romfs.bin` packing; check **"Add python.exe to PATH"** during installation)*
-3. **Docker** *(only required if you use **`Patch & Build kaiHEN`**; NOT required for `.nup`, `ExeFS + RomFS`, or **`Launch kaiHEN`**)* — either **Docker Desktop for Windows** (https://www.docker.com/products/docker-desktop/) or Docker running inside WSL2.
+3. **WSL2 + Node.js inside WSL** *(only required for **`Launch kaiHEN`**)*
+4. **Docker** *(only required if you use **`Patch & Build kaiHEN`**; NOT required for `.nup`, `ExeFS + RomFS`, or **`Launch kaiHEN`**)* — either **Docker Desktop for Windows** (https://www.docker.com/products/docker-desktop/) or Docker running inside WSL2.
 
 > **Note:** An **exFAT-formatted microSD card** is required for games whose `romfs.bin` exceeds 4 GiB.
 
@@ -79,6 +80,7 @@
 - **"Node.js 18+ is required" popup on launch:** Install Node.js LTS from https://nodejs.org, then reopen `Launch KaiVesper Prep.vbs`.
 - **"Python missing" pill in top bar:** Install Python 3.9+ from https://www.python.org/downloads/ (checking *Add to PATH*). For Mode 2 (`ExeFS + RomFS`), you can also uncheck *"Pack loose `romfs/` into `romfs.bin` on PC"* to copy `romfs/` directly and let KaiVesper pack it on-console.
 - **"Docker missing" pill in the `kaiHEN` tab:** Install and start Docker Desktop (or start Docker in WSL2) before clicking **`Patch & Build kaiHEN`**. If you already have a patched kaiHEN folder, **`Launch kaiHEN`** works without Docker.
+- **`Launch kaiHEN` needs WSL2 + Node.js inside WSL** (ns2jb uses Linux Unix sockets, unsupported by Node on Windows). Install with `wsl --install`, then Node.js 18+ in your distro. If the Switch 2 cannot reach the PC, enable WSL *mirrored networking* (`networkingMode=mirrored` in `%USERPROFILE%\.wslconfig`, then `wsl --shutdown`).
 - **Switch 2 cannot connect during `Launch kaiHEN`:** Ensure your Switch 2 and PC are on the same local Wi-Fi/LAN, select your real LAN IP (e.g. `192.168.x.x`) in the **PC LAN IP** dropdown (not a virtual WSL/VPN adapter), and allow Node.js on Private networks in Windows Firewall if prompted.
 - **Cancelling a running job:** Click **`Cancel`** or **`Stop kaiHEN`** — KaiVesper Prep terminates the entire process tree cleanly.
 

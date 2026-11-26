@@ -81,63 +81,42 @@ function dockerCmd(dockerInfo, dockerArgs) {
   return {bin: 'wsl.exe', args: [...prefix, 'docker', ...dockerArgs]};
 }
 
-function toDockerHostPath(winPath, dockerInfo) {
+function toWslPath(winPath) {
   const abs = path.resolve(winPath);
-  if (dockerInfo.mode === 'native') return abs;
   const m = abs.match(/^([A-Za-z]):\\(.*)$/);
   if (m) return `/mnt/${m[1].toLowerCase()}/${m[2].replace(/\\/g, '/')}`;
   return abs.replace(/\\/g, '/');
 }
 
-async function downloadFile(url, destPath) {
-  fs.mkdirSync(path.dirname(destPath), {recursive: true});
-  try {
-    const res = await fetch(url, {
-      redirect: 'follow',
-      headers: {'User-Agent': 'KaiVesper-Prep/1.0', 'Accept': '*/*'}
+function toDockerHostPath(winPath, dockerInfo) {
+  if (dockerInfo.mode === 'native') return path.resolve(winPath);
+  return toWslPath(winPath);
+}
+
+async function detectWslNode() {
+  if (process.platform !== 'win32') return {ok: true, distro: null, nodeBin: process.execPath, version: process.version};
+  const findScript = 'n=$(command -v node 2>/dev/null || true); if [ -z "$n" ]; then for p in "$HOME"/.nvm/versions/node/*/bin/node "$HOME"/.volta/bin/node /usr/local/bin/node /usr/bin/node; do [ -x "$p" ] && n="$p"; done; fi; if [ -x "$n" ]; then echo "$n"; "$n" -v; fi\n';
+  const attempts = [
+    {distro: null, prefix: []},
+    {distro: 'Ubuntu', prefix: ['-d', 'Ubuntu']},
+  ];
+  for (const att of attempts) {
+    const res = await new Promise(resolve => {
+      const p = spawn('wsl.exe', [...att.prefix, '--', 'bash', '-s'], {windowsHide: true});
+      let out = '';
+      const timer = setTimeout(() => { try { p.kill(); } catch {} resolve(''); }, 10000);
+      p.stdout.on('data', d => { out += d; });
+      p.on('error', () => { clearTimeout(timer); resolve(''); });
+      p.on('close', () => { clearTimeout(timer); resolve(out); });
+      p.stdin.on('error', () => {});
+      p.stdin.end(findScript);
     });
-    if (res.ok) {
-      const buf = Buffer.from(await res.arrayBuffer());
-      fs.writeFileSync(destPath, buf);
-      return buf.length;
+    const lines = String(res).split(/\r?\n/).map(s => s.trim()).filter(Boolean);
+    if (lines.length >= 2 && /^v\d+\./.test(lines[1])) {
+      return {ok: true, distro: att.distro, nodeBin: lines[0], version: lines[1]};
     }
-    if (process.platform !== 'win32') throw new Error(`HTTP ${res.status} downloading ${url}`);
-  } catch (err) {
-    if (process.platform !== 'win32') throw err;
   }
-  const r = await execQuiet('curl.exe', ['-fsSL', '--retry', '2', '-o', destPath, url], 120000);
-  if (!r.ok || !fs.existsSync(destPath) || fs.statSync(destPath).size === 0) {
-    throw new Error(`Download failed for ${url}: ${r.stderr || r.stdout || r.err?.message || 'empty file'}`);
-  }
-  return fs.statSync(destPath).size;
-}
-
-async function extractZip(zipPath, destDir) {
-  fs.mkdirSync(destDir, {recursive: true});
-  const psScript = `Expand-Archive -LiteralPath '${zipPath.replace(/'/g, "''")}' -DestinationPath '${destDir.replace(/'/g, "''")}' -Force`;
-  const r = await execQuiet('powershell.exe', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command', psScript], 120000);
-  if (!r.ok) throw new Error(`ZIP extraction failed: ${r.stderr || r.stdout || r.err?.message}`);
-}
-
-function findDirContaining(rootDir, relPaths, maxDepth = 4) {
-  const check = dir => relPaths.every(rp => fs.existsSync(path.join(dir, rp)));
-  const walk = (dir, depth) => {
-    if (check(dir)) return dir;
-    if (depth >= maxDepth) return null;
-    for (const ent of fs.readdirSync(dir, {withFileTypes: true})) {
-      if (!ent.isDirectory()) continue;
-      const found = walk(path.join(dir, ent.name), depth + 1);
-      if (found) return found;
-    }
-    return null;
-  };
-  return walk(rootDir, 0);
-}
-
-function sha256File(filePath) {
-  const h = crypto.createHash('sha256');
-  h.update(fs.readFileSync(filePath));
-  return h.digest('hex');
+  return {ok: false, distro: null, nodeBin: null, version: null};
 }
 
 function inspectKaihenDir(dirPath) {
@@ -412,6 +391,8 @@ module.exports = {
   DEFAULT_NS2JB_DIR,
   DEFAULT_DOCKER_IMAGE,
   detectDocker,
+  detectWslNode,
+  toWslPath,
   inspectKaihenDir,
   listLanIps,
   findNs2jbDir,
