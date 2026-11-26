@@ -180,6 +180,7 @@ const server = http.createServer(async (req, res) => {
     if (pathname === '/api/env' && req.method === 'GET') {
       const [py, nup] = await Promise.all([checkPython(), checkNup()]);
       return sendJson(res, 200, {
+        apiVersion: 2,
         node: process.version,
         python: py,
         nup,
