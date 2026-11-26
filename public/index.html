@@ -217,11 +217,11 @@
       <hr class="divider" />
 
       <div class="card-head">
-        <h2 data-i18n="khLaunchTitle">2. Launch Patched kaiHEN (Native Windows)</h2>
+        <h2 data-i18n="khLaunchTitle">2. Launch Patched kaiHEN (via WSL2)</h2>
         <span class="pill" id="pill-kh-run" data-i18n="khIdle">Idle</span>
       </div>
       <p class="hint" data-i18n-html="khLaunchDesc">
-        Runs <code>ns2jb</code> (<code>hen.cjs</code>) natively on Windows (auto-downloads <code>ns2jb</code> on first launch — zero WSL required). Start with <strong>SmileBASIC</strong> open at its Direct-mode prompt on Switch 2.
+        Runs <code>ns2jb</code> (<code>hen.cjs</code>) through <strong>WSL2 + Node.js</strong> (auto-downloads <code>ns2jb</code> on first launch; needed because ns2jb uses Linux Unix sockets). Start with <strong>SmileBASIC</strong> open at its Direct-mode prompt on Switch 2.
       </p>
 
       <div class="grid">
@@ -268,7 +268,7 @@
         <strong>kaiHEN Active!</strong> Quit SmileBASIC and launch a Switch 2 game while holding <strong>R</strong> (2nd launch opens <strong>hbmenu -&gt; KaiVesper</strong>). Keep this launcher running until SmileBASIC closes.
       </div>
 
-      <pre class="log compact" id="kh-log-view" style="margin-top:12px">Click "Launch kaiHEN" to start ns2jb hen.cjs natively on Windows.</pre>
+      <pre class="log compact" id="kh-log-view" style="margin-top:12px">Click "Launch kaiHEN" to start ns2jb hen.cjs through WSL2.</pre>
     </section>
 
     <section class="card">

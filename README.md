@@ -24,7 +24,7 @@
 **KaiVesper Prep** is a lightweight, **100% native Windows** companion app for **[KaiVesper](https://github.com/Sank-kab/KaiVesper)** (`kaivesper.nro`):
 - **Zero WSL required** for `.nup` extraction and `ExeFS / RomFS` installation (WSL2 is only used by **`Launch kaiHEN`**)
 - **Zero `npm install` / zero external Node dependencies**
-- **1-Click Patched `kaiHEN` Builder & Native Windows Launcher** built right in
+- **1-Click Patched `kaiHEN` Builder & WSL2-based Launcher** built right in
 - **Zero Host setup on PC** — profiles are automatically placed into `/ns2jb-modloader/sw2/` or `/sw1/` on your MicroSD with `main.npdm` cleanly skipped, so you choose your Host title directly on Switch 2 inside **KaiVesper → Hosts**!
 
 ---
@@ -91,7 +91,7 @@
 - Bundles **[`a55uka/nup`](https://github.com/a55uka/nup)** (MIT) for unencrypted `.nup` extraction (with `zstandard` installed on demand in an isolated Python venv).
 - Bundles a WebAssembly ZBIC decoder (`lib/zbic.wasm`) built with **Zstandard (`zstd`, BSD-3-Clause / GPL-2.0)** and **WASI libc (MIT / Apache-2.0)**.
 - Downloads & patches **[`ouncebrew/kaihen`](https://github.com/ouncebrew/kaihen)** (GPL-2.0) using **[`ouncebrew/ounce-devkit`](https://github.com/ouncebrew/ounce-devkit)** and the public `ro:dmnt` FS helper patches from **[`nicholasyoannou/switch2-modbridge`](https://github.com/nicholasyoannou/switch2-modbridge)**.
-- Launches patched `kaiHEN` natively using **[`kurumuz/ns2jb`](https://gitlab.com/kurumuz/ns2jb)** (`hen.cjs` / `run.cjs`).
+- Launches patched `kaiHEN` (through WSL2) using **[`kurumuz/ns2jb`](https://gitlab.com/kurumuz/ns2jb)** (`hen.cjs` / `run.cjs`).
 
 ## License
 

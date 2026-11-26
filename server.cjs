@@ -35,6 +35,8 @@ const kaihenJob = {
   dir: null,
   ip: null,
   smileBasicCmd: null,
+  wslPrefix: null,
+  stopping: false,
   logs: []
 };
 
@@ -112,6 +114,20 @@ function killProcessTree(proc) {
     });
   } else {
     try { proc.kill(); } catch {}
+  }
+}
+
+function stopKaihen() {
+  const proc = kaihenJob.proc;
+  if (proc) killProcessTree(proc);
+  if (process.platform === 'win32' && kaihenJob.wslPrefix) {
+    // taskkill only ends wsl.exe; the Linux-side node processes must be stopped inside WSL
+    try {
+      const k = spawn('wsl.exe', [...kaihenJob.wslPrefix, 'bash', '-s'], {windowsHide: true, stdio: ['pipe', 'ignore', 'ignore']});
+      k.on('error', () => {});
+      k.stdin.on('error', () => {});
+      k.stdin.end("pkill -f '/[.]kaivesper-prep/ns2jb/hen[.]cjs'; pkill -f '/[.]kaivesper-prep/ns2jb/run[.]cjs'; exit 0\n");
+    } catch {}
   }
 }
 
@@ -226,6 +242,7 @@ async function launchKaihen({kaihenDir, ip, ns2jbDir}) {
 
   kaihenJob.logs = [];
   kaihenJob.status = 'running';
+  kaihenJob.stopping = false;
   kaihenJob.ready = false;
   kaihenJob.dir = targetDir;
   kaihenJob.ip = ip || null;
@@ -260,6 +277,7 @@ async function launchKaihen({kaihenDir, ip, ns2jbDir}) {
     const wslTargetDir = toWslPath(targetDir);
     const ipArg = (ip && String(ip).trim()) ? String(ip).trim() : '';
     const prefix = wslNode.distro ? ['-d', wslNode.distro, '--'] : ['--'];
+    kaihenJob.wslPrefix = prefix;
     const shq = s => "'" + String(s).replace(/'/g, "'\\''") + "'";
     const script = [
       '#!/bin/bash',
@@ -267,7 +285,7 @@ async function launchKaihen({kaihenDir, ip, ns2jbDir}) {
       'mkdir -p "$HOME/.kaivesper-prep/ns2jb"',
       'cp -ru ' + shq(wslNs2jbSrc) + '/. "$HOME/.kaivesper-prep/ns2jb/"',
       'cd "$HOME/.kaivesper-prep/ns2jb"',
-      'exec ' + shq(wslNode.nodeBin) + ' hen.cjs --dir ' + shq(wslTargetDir) + (ipArg ? ' ' + shq(ipArg) : '')
+      'exec ' + shq(wslNode.nodeBin) + ' "$HOME/.kaivesper-prep/ns2jb/hen.cjs" --dir ' + shq(wslTargetDir) + (ipArg ? ' ' + shq(ipArg) : '')
     ].join('\n') + '\n';
     const scriptWin = path.join(require('node:os').tmpdir(), 'kv-launch-kaihen.sh');
     fs.writeFileSync(scriptWin, script, {encoding: 'utf8'});
@@ -294,7 +312,8 @@ async function launchKaihen({kaihenDir, ip, ns2jbDir}) {
   proc.on('close', code => {
     const wasReady = kaihenJob.ready;
     kaihenJob.proc = null;
-    kaihenJob.status = (code === 0 || wasReady) ? 'done' : 'error';
+    stopKaihen();
+    kaihenJob.status = kaihenJob.stopping ? 'idle' : ((code === 0 || wasReady) ? 'done' : 'error');
     pushKaihenLog('info', `--- kaiHEN launcher exited (code ${code}) ---`);
     broadcast('kaihen-state', getKaihenState());
   });
@@ -388,7 +407,8 @@ const server = http.createServer(async (req, res) => {
 
     if (pathname === '/api/kaihen/stop' && req.method === 'POST') {
       if (kaihenJob.proc) {
-        killProcessTree(kaihenJob.proc);
+        kaihenJob.stopping = true;
+        stopKaihen();
         pushKaihenLog('info', 'kaiHEN launcher stopped by user.');
       }
       return sendJson(res, 200, {ok: true});
@@ -439,7 +459,7 @@ const server = http.createServer(async (req, res) => {
     if (pathname === '/api/shutdown' && req.method === 'POST') {
       sendJson(res, 200, {ok: true});
       if (job.proc) killProcessTree(job.proc);
-      if (kaihenJob.proc) killProcessTree(kaihenJob.proc);
+      if (kaihenJob.proc) stopKaihen();
       for (const c of sseClients) { try { c.end(); } catch {} }
       setTimeout(() => { server.close(() => process.exit(0)); setTimeout(() => process.exit(0), 400).unref(); }, 150);
       return;
