@@ -6,6 +6,14 @@ const path = require('node:path');
 const {spawn, execFile} = require('node:child_process');
 const {pickFile, pickFolder, openInExplorer} = require('./lib/win-dialogs.cjs');
 const {resolveWindowsNup, nupEnv, inspectSw1Folder, VENV_DIR, DEFAULT_OUT_BASE} = require('./prepare-win.cjs');
+const {
+  DEFAULT_PATCHED_DIR,
+  detectDocker,
+  inspectKaihenDir,
+  listLanIps,
+  findNs2jbDir,
+  ensureNs2jb
+} = require('./kaihen-win.cjs');
 
 const PORT = Number(process.env.KV_PREP_PORT || 47822);
 const PUBLIC_DIR = path.join(__dirname, 'public');
@@ -17,7 +25,16 @@ const MIME = {
 };
 
 const sseClients = new Set();
-const job = {proc: null, status: 'idle', lastOutput: null, logs: []};
+const job = {proc: null, kind: null, status: 'idle', lastOutput: null, logs: []};
+const kaihenJob = {
+  proc: null,
+  status: 'idle',
+  ready: false,
+  dir: null,
+  ip: null,
+  smileBasicCmd: null,
+  logs: []
+};
 
 function broadcast(event, data) {
   const payload = `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`;
@@ -36,6 +53,39 @@ function pushLog(stream, text) {
     const m = line.match(/^\s+([A-Za-z]:\\.+)$/);
     if (m) job.lastOutput = m[1].trim();
   }
+}
+
+function getKaihenState() {
+  return {
+    status: kaihenJob.status,
+    ready: kaihenJob.ready,
+    dir: kaihenJob.dir,
+    ip: kaihenJob.ip,
+    smileBasicCmd: kaihenJob.smileBasicCmd,
+    logs: kaihenJob.logs.slice(-150)
+  };
+}
+
+function pushKaihenLog(stream, text) {
+  let stateChanged = false;
+  for (const line of String(text).replace(/\r\n/g, '\n').split('\n')) {
+    if (!line) continue;
+    const entry = {ts: new Date().toLocaleTimeString(), stream, line};
+    kaihenJob.logs.push(entry);
+    if (kaihenJob.logs.length > 500) kaihenJob.logs.shift();
+    broadcast('kaihen-log', entry);
+
+    const cmdMatch = line.match(/\bV=START\([^)]+\)/);
+    if (cmdMatch && kaihenJob.smileBasicCmd !== cmdMatch[0]) {
+      kaihenJob.smileBasicCmd = cmdMatch[0];
+      stateChanged = true;
+    }
+    if (/HEN launch completed!/i.test(line) && !kaihenJob.ready) {
+      kaihenJob.ready = true;
+      stateChanged = true;
+    }
+  }
+  if (stateChanged) broadcast('kaihen-state', getKaihenState());
 }
 
 function detectDrives() {
@@ -142,16 +192,17 @@ function sendJson(res, status, data) {
 }
 
 function getJobState() {
-  return {status: job.status, lastOutput: job.lastOutput, logs: job.logs.slice(-150)};
+  return {status: job.status, kind: job.kind, lastOutput: job.lastOutput, logs: job.logs.slice(-150)};
 }
 
-function startWorker(flag, payload) {
+function startWorker(scriptName, flag, payload, kind) {
   job.logs = [];
+  job.kind = kind || null;
   job.status = 'running';
   job.lastOutput = null;
   broadcast('state', getJobState());
 
-  const proc = spawn(process.execPath, [path.join(__dirname, 'prepare-win.cjs'), flag, JSON.stringify(payload)], {windowsHide: true});
+  const proc = spawn(process.execPath, [path.join(__dirname, scriptName), flag, JSON.stringify(payload)], {windowsHide: true});
   job.proc = proc;
   proc.stdout.on('data', d => pushLog('stdout', d));
   proc.stderr.on('data', d => pushLog('stderr', d));
@@ -164,6 +215,58 @@ function startWorker(flag, payload) {
   });
 }
 
+async function launchKaihen({kaihenDir, ip, ns2jbDir}) {
+  const targetDir = path.resolve(String(kaihenDir || DEFAULT_PATCHED_DIR).trim());
+  const info = inspectKaihenDir(targetDir);
+  if (!info.valid) {
+    throw new Error(`Invalid kaiHEN folder (missing ro/main, hen/main, or bootstrap.bin): ${targetDir}`);
+  }
+
+  kaihenJob.logs = [];
+  kaihenJob.status = 'running';
+  kaihenJob.ready = false;
+  kaihenJob.dir = targetDir;
+  kaihenJob.ip = ip || null;
+  kaihenJob.smileBasicCmd = null;
+  broadcast('kaihen-state', getKaihenState());
+
+  let resolvedNs2jb;
+  try {
+    resolvedNs2jb = await ensureNs2jb(ns2jbDir, msg => pushKaihenLog('info', msg));
+  } catch (err) {
+    kaihenJob.status = 'error';
+    pushKaihenLog('stderr', 'Failed to prepare ns2jb: ' + (err.message || err));
+    broadcast('kaihen-state', getKaihenState());
+    return;
+  }
+
+  const henScript = path.join(resolvedNs2jb, 'hen.cjs');
+  const args = [henScript, '--dir', targetDir];
+  if (ip && String(ip).trim()) args.push(String(ip).trim());
+
+  pushKaihenLog('info', `Launching kaiHEN natively on Windows: node hen.cjs --dir "${targetDir}"${ip ? ' ' + ip : ''}`);
+  if (!info.patched) {
+    pushKaihenLog('info', 'Note: This folder does not contain .kaivesper-patched.json (if stock kaiHEN, use "Patch & Build kaiHEN" first for on-console Hot-Swap!).');
+  }
+
+  const proc = spawn(process.execPath, args, {
+    cwd: resolvedNs2jb,
+    windowsHide: true,
+    stdio: ['pipe', 'pipe', 'pipe']
+  });
+  kaihenJob.proc = proc;
+  proc.stdout.on('data', d => pushKaihenLog('stdout', d));
+  proc.stderr.on('data', d => pushKaihenLog('stderr', d));
+  proc.on('error', err => pushKaihenLog('stderr', 'Process error: ' + err.message));
+  proc.on('close', code => {
+    const wasReady = kaihenJob.ready;
+    kaihenJob.proc = null;
+    kaihenJob.status = (code === 0 || wasReady) ? 'done' : 'error';
+    pushKaihenLog('info', `--- kaiHEN launcher exited (code ${code}) ---`);
+    broadcast('kaihen-state', getKaihenState());
+  });
+}
+
 const server = http.createServer(async (req, res) => {
   const url = new URL(req.url, `http://127.0.0.1:${PORT}`);
   const pathname = url.pathname;
@@ -172,21 +275,28 @@ const server = http.createServer(async (req, res) => {
     if (pathname === '/api/events' && req.method === 'GET') {
       res.writeHead(200, {'Content-Type': 'text/event-stream; charset=utf-8', 'Cache-Control': 'no-cache', Connection: 'keep-alive'});
       res.write(`event: state\ndata: ${JSON.stringify(getJobState())}\n\n`);
+      res.write(`event: kaihen-state\ndata: ${JSON.stringify(getKaihenState())}\n\n`);
       sseClients.add(res);
       req.on('close', () => sseClients.delete(res));
       return;
     }
 
     if (pathname === '/api/env' && req.method === 'GET') {
-      const [py, nup] = await Promise.all([checkPython(), checkNup()]);
+      const [py, nup, docker] = await Promise.all([checkPython(), checkNup(), detectDocker()]);
+      const defaultKaihenInfo = inspectKaihenDir(DEFAULT_PATCHED_DIR);
       return sendJson(res, 200, {
-        apiVersion: 2,
+        apiVersion: 3,
         node: process.version,
         python: py,
         nup,
+        docker,
         drives: detectDrives(),
+        lanIps: listLanIps(),
+        ns2jbDir: findNs2jbDir(null),
+        defaultPatchedKaihen: defaultKaihenInfo,
         defaultOut: DEFAULT_OUT_BASE,
-        job: getJobState()
+        job: getJobState(),
+        kaihen: getKaihenState()
       });
     }
 
@@ -199,7 +309,7 @@ const server = http.createServer(async (req, res) => {
     if (pathname === '/api/prepare/start' && req.method === 'POST') {
       if (job.proc) return sendJson(res, 409, {error: 'A task is already running!'});
       const body = await readBody(req);
-      startWorker('--prepare-json', body);
+      startWorker('prepare-win.cjs', '--prepare-json', body, 'nup');
       return sendJson(res, 200, {ok: true});
     }
 
@@ -212,7 +322,53 @@ const server = http.createServer(async (req, res) => {
     if (pathname === '/api/sw1/start' && req.method === 'POST') {
       if (job.proc) return sendJson(res, 409, {error: 'A task is already running!'});
       const body = await readBody(req);
-      startWorker('--prepare-sw1-json', body);
+      startWorker('prepare-win.cjs', '--prepare-sw1-json', body, 'sw1');
+      return sendJson(res, 200, {ok: true});
+    }
+
+    if (pathname === '/api/kaihen/patch' && req.method === 'POST') {
+      if (job.proc) return sendJson(res, 409, {error: 'A task is already running!'});
+      const body = await readBody(req);
+      startWorker('kaihen-win.cjs', '--patch-json', body, 'kaihen-patch');
+      return sendJson(res, 200, {ok: true});
+    }
+
+    if (pathname === '/api/kaihen/inspect' && req.method === 'POST') {
+      const body = await readBody(req);
+      return sendJson(res, 200, inspectKaihenDir(body.path));
+    }
+
+    if (pathname === '/api/kaihen/start' && req.method === 'POST') {
+      if (kaihenJob.proc) return sendJson(res, 409, {error: 'kaiHEN launcher is already running!'});
+      const body = await readBody(req);
+      const targetDir = path.resolve(String(body.kaihenDir || DEFAULT_PATCHED_DIR).trim());
+      if (!inspectKaihenDir(targetDir).valid) {
+        return sendJson(res, 400, {error: `Selected folder is not a valid kaiHEN package (missing ro/main, hen/main, or bootstrap.bin): ${targetDir}`});
+      }
+      launchKaihen(body).catch(err => {
+        kaihenJob.status = 'error';
+        pushKaihenLog('stderr', err.message || String(err));
+        broadcast('kaihen-state', getKaihenState());
+      });
+      return sendJson(res, 200, {ok: true});
+    }
+
+    if (pathname === '/api/kaihen/stop' && req.method === 'POST') {
+      if (kaihenJob.proc) {
+        killProcessTree(kaihenJob.proc);
+        pushKaihenLog('info', 'kaiHEN launcher stopped by user.');
+      }
+      return sendJson(res, 200, {ok: true});
+    }
+
+    if (pathname === '/api/kaihen/stdin' && req.method === 'POST') {
+      const body = await readBody(req);
+      if (!kaihenJob.proc || !kaihenJob.proc.stdin) {
+        return sendJson(res, 400, {error: 'kaiHEN launcher is not running.'});
+      }
+      const line = String(body.text ?? '');
+      kaihenJob.proc.stdin.write(line + '\n');
+      pushKaihenLog('info', `> ${line}`);
       return sendJson(res, 200, {ok: true});
     }
 
@@ -250,6 +406,7 @@ const server = http.createServer(async (req, res) => {
     if (pathname === '/api/shutdown' && req.method === 'POST') {
       sendJson(res, 200, {ok: true});
       if (job.proc) killProcessTree(job.proc);
+      if (kaihenJob.proc) killProcessTree(kaihenJob.proc);
       for (const c of sseClients) { try { c.end(); } catch {} }
       setTimeout(() => { server.close(() => process.exit(0)); setTimeout(() => process.exit(0), 400).unref(); }, 150);
       return;

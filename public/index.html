@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>KaiVesper Prep — Windows Native (.nup &amp; Switch 1 SD Prep)</title>
+  <title>KaiVesper Prep — Windows Native (.nup, ExeFS/RomFS &amp; kaiHEN)</title>
   <link rel="stylesheet" href="/styles.css" />
 </head>
 <body>
@@ -13,7 +13,7 @@
         <div class="logo"><span class="jc l"></span><span class="jc r"></span></div>
         <div>
           <h1>KaiVesper Prep</h1>
-          <p class="sub" data-i18n="subtitle">Windows Native .nup &amp; Switch 1 ExeFS/RomFS SD Prep (Zero WSL) · by sank-kab</p>
+          <p class="sub" data-i18n="subtitle">Windows Native .nup, ExeFS/RomFS &amp; kaiHEN Tool · by sank-kab</p>
         </div>
       </div>
       <div class="pills">
@@ -39,6 +39,7 @@
     <div class="mode-tabs">
       <button class="mode-tab active" id="tab-btn-nup" data-mode="nup" data-i18n="tabNup">Extract .nup</button>
       <button class="mode-tab" id="tab-btn-sw1" data-mode="sw1" data-i18n="tabSw1">ExeFS + RomFS (SW1 / SW2)</button>
+      <button class="mode-tab" id="tab-btn-kaihen" data-mode="kaihen" data-i18n="tabKaihen">kaiHEN (Patch &amp; Launch)</button>
       <span class="pill" id="pill-job" style="margin-left:auto" data-i18n="pillReady">Ready</span>
     </div>
 
@@ -177,6 +178,97 @@
         <button class="btn danger hidden" id="btn-sw1-stop" data-i18n="btnStop">Cancel</button>
         <button class="btn ghost hidden" id="btn-sw1-open-out" data-i18n="btnOpenOut">Open output folder</button>
       </div>
+    </section>
+
+    <!-- MODE 3: KAIHEN PATCH & LAUNCH -->
+    <section class="card hidden" id="panel-kaihen">
+      <div class="card-head">
+        <h2 data-i18n="khPatchTitle">1. Patch &amp; Build kaiHEN (ro:dmnt FS Helpers)</h2>
+        <span class="pill" id="pill-docker">Docker...</span>
+      </div>
+      <p class="hint" data-i18n-html="khPatchDesc">
+        Automatically downloads <code>ouncebrew/kaihen</code> (<code>20261117.1</code>) and the 3 <code>ro:dmnt</code> FS helper patches from <code>switch2-modbridge</code>, compiles them via Docker, and builds a ready-to-launch patched kaiHEN folder for KaiVesper Hot-Swapping.
+      </p>
+
+      <div class="grid">
+        <div class="field full">
+          <label for="kh-stock-dir" data-i18n="lblKhStockDir">Stock kaiHEN folder (optional — leave blank to auto-download 20261117.1)</label>
+          <div class="row">
+            <input type="text" id="kh-stock-dir" data-i18n-placeholder="phKhStockDir" placeholder="Blank = auto-download official kaiHEN-20261117.1.zip" />
+            <button class="btn ghost" id="btn-browse-kh-stock" data-i18n="btnBrowse">Browse...</button>
+          </div>
+        </div>
+
+        <div class="field full">
+          <label for="kh-out-dir" data-i18n="lblKhOutDir">Output patched kaiHEN folder (optional — blank = default)</label>
+          <div class="row">
+            <input type="text" id="kh-out-dir" data-i18n-placeholder="phKhOutDir" placeholder="Blank = %USERPROFILE%\.kaivesper-prep\kaiHEN-20261117.1-kaivesper-patched" />
+            <button class="btn ghost" id="btn-browse-kh-out" data-i18n="btnBrowse">Browse...</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="actions">
+        <button class="btn primary" id="btn-kh-patch" data-i18n="btnKhPatch">Patch &amp; Build kaiHEN</button>
+        <button class="btn danger hidden" id="btn-kh-patch-stop" data-i18n="btnStop">Cancel</button>
+        <button class="btn ghost hidden" id="btn-kh-open-out" data-i18n="btnOpenOut">Open output folder</button>
+      </div>
+
+      <hr class="divider" />
+
+      <div class="card-head">
+        <h2 data-i18n="khLaunchTitle">2. Launch Patched kaiHEN (Native Windows)</h2>
+        <span class="pill" id="pill-kh-run" data-i18n="khIdle">Idle</span>
+      </div>
+      <p class="hint" data-i18n-html="khLaunchDesc">
+        Runs <code>ns2jb</code> (<code>hen.cjs</code>) natively on Windows (auto-downloads <code>ns2jb</code> on first launch — zero WSL required). Start with <strong>SmileBASIC</strong> open at its Direct-mode prompt on Switch 2.
+      </p>
+
+      <div class="grid">
+        <div class="field full">
+          <label for="kh-launch-dir">
+            <span data-i18n="lblKhLaunchDir">Patched kaiHEN folder to launch</span>
+            <span class="badge-inline hidden" id="kh-dir-badge"></span>
+          </label>
+          <div class="row">
+            <input type="text" id="kh-launch-dir" data-i18n-placeholder="phKhLaunchDir" placeholder="Auto-filled after Patch &amp; Build (or pick an existing patched kaiHEN folder)" />
+            <button class="btn ghost" id="btn-browse-kh-launch" data-i18n="btnBrowse">Browse...</button>
+          </div>
+        </div>
+
+        <div class="field">
+          <label for="kh-ip" data-i18n="lblKhIp">PC LAN IP (reachable by Switch 2)</label>
+          <select id="kh-ip"></select>
+        </div>
+
+        <div class="field">
+          <label for="kh-stdin" data-i18n="lblKhStdin">Send input to launcher (if prompted)</label>
+          <div class="row">
+            <input type="text" id="kh-stdin" data-i18n-placeholder="phKhStdin" placeholder="Optional stdin response..." />
+            <button class="btn ghost" id="btn-kh-send" data-i18n="btnSend">Send</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="actions">
+        <button class="btn success" id="btn-kh-launch" data-i18n="btnKhLaunch">Launch kaiHEN</button>
+        <button class="btn danger hidden" id="btn-kh-stop" data-i18n="btnKhStop">Stop kaiHEN</button>
+        <button class="btn small ghost" id="btn-kh-clear" data-i18n="btnClear">Clear</button>
+      </div>
+
+      <div class="cmd-banner hidden" id="kh-cmd-banner">
+        <div>
+          <div class="cmd-label" data-i18n="khCmdLabel">Type this in SmileBASIC (Direct mode) on Switch 2:</div>
+          <code class="cmd-code" id="kh-cmd-code"></code>
+        </div>
+        <button class="btn small primary" id="btn-kh-copy" data-i18n="btnCopy">Copy</button>
+      </div>
+
+      <div class="success-banner hidden" id="kh-ready-banner" data-i18n-html="khReadyBanner">
+        <strong>kaiHEN Active!</strong> Quit SmileBASIC and launch a Switch 2 game while holding <strong>R</strong> (2nd launch opens <strong>hbmenu -&gt; KaiVesper</strong>). Keep this launcher running until SmileBASIC closes.
+      </div>
+
+      <pre class="log compact" id="kh-log-view" style="margin-top:12px">Click "Launch kaiHEN" to start ns2jb hen.cjs natively on Windows.</pre>
     </section>
 
     <section class="card">

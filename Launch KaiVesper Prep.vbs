@@ -8,7 +8,7 @@ If sh.Run("cmd /c where node >nul 2>&1", 0, True) <> 0 Then
 End If
 
 Function CheckServerState()
-  ' Returns: 0 = down, 1 = old version, 2 = current version (apiVersion:2)
+  ' Returns: 0 = down, 1 = old version, 2 = current version (apiVersion:3)
   CheckServerState = 0
   On Error Resume Next
   Set http = CreateObject("WinHttp.WinHttpRequest.5.1")
@@ -17,7 +17,7 @@ Function CheckServerState()
   http.Send
   If Err.Number = 0 Then
     If http.Status = 200 Then
-      If InStr(http.ResponseText, """apiVersion"":2") > 0 Then
+      If InStr(http.ResponseText, """apiVersion"":3") > 0 Then
         CheckServerState = 2
       Else
         CheckServerState = 1

@@ -4,9 +4,12 @@ const $ = id => document.getElementById(id);
 const savedLang = localStorage.getItem('kvp_lang');
 let lang = (savedLang && window.KVP_I18N[savedLang]) ? savedLang : 'en';
 let logs = [];
+let khLogs = [];
 let lastOutput = null;
 let lastEnv = null;
-let lastJobState = {status: 'idle', lastOutput: null};
+let lastJobState = {status: 'idle', kind: null, lastOutput: null};
+let lastKaihenState = {status: 'idle', ready: false, smileBasicCmd: null};
+let lastKaihenDirInfo = null;
 let sw1PatchesDir = null;
 
 function t(key, vars = {}) {
@@ -24,7 +27,10 @@ function applyLanguage() {
   document.querySelectorAll('[data-i18n-placeholder]').forEach(el => { el.placeholder = t(el.dataset.i18nPlaceholder); });
   if (lastEnv) renderEnv(lastEnv);
   renderJobState(lastJobState);
+  renderKaihenState(lastKaihenState);
+  renderKaihenDirBadge(lastKaihenDirInfo);
   renderLogs();
+  renderKhLogs();
 }
 
 $('lang-select').addEventListener('change', e => {
@@ -34,14 +40,15 @@ $('lang-select').addEventListener('change', e => {
 });
 
 function switchMode(mode) {
-  const isNup = mode === 'nup';
-  $('tab-btn-nup').classList.toggle('active', isNup);
-  $('tab-btn-sw1').classList.toggle('active', !isNup);
-  $('panel-nup').classList.toggle('hidden', !isNup);
-  $('panel-sw1').classList.toggle('hidden', isNup);
+  for (const m of ['nup', 'sw1', 'kaihen']) {
+    const active = m === mode;
+    $(`tab-btn-${m}`).classList.toggle('active', active);
+    $(`panel-${m}`).classList.toggle('hidden', !active);
+  }
 }
 $('tab-btn-nup').addEventListener('click', () => switchMode('nup'));
 $('tab-btn-sw1').addEventListener('click', () => switchMode('sw1'));
+$('tab-btn-kaihen').addEventListener('click', () => switchMode('kaihen'));
 
 function toast(msg, isErr = false) {
   const el = $('toast');
@@ -65,22 +72,96 @@ function renderLogs() {
   el.scrollTop = el.scrollHeight;
 }
 
+function renderKhLogs() {
+  const el = $('kh-log-view');
+  el.textContent = khLogs.length ? khLogs.map(l => `[${l.ts}] ${l.line}`).join('\n') : t('khLogEmpty');
+  el.scrollTop = el.scrollHeight;
+}
+
+function renderKaihenDirBadge(info) {
+  lastKaihenDirInfo = info;
+  const badge = $('kh-dir-badge');
+  if (!info || !$('kh-launch-dir').value.trim()) {
+    badge.classList.add('hidden');
+    return;
+  }
+  badge.classList.remove('hidden', 'ok', 'warn', 'err');
+  if (info.valid && info.patched) {
+    badge.textContent = t('khBadgePatched');
+    badge.classList.add('ok');
+  } else if (info.valid) {
+    badge.textContent = t('khBadgeStock');
+    badge.classList.add('warn');
+  } else {
+    badge.textContent = t('khBadgeInvalid');
+    badge.classList.add('err');
+  }
+}
+
+async function inspectKaihenLaunchDir() {
+  const p = $('kh-launch-dir').value.trim();
+  if (!p) return renderKaihenDirBadge(null);
+  try {
+    const info = await api('/api/kaihen/inspect', {method: 'POST', body: JSON.stringify({path: p})});
+    renderKaihenDirBadge(info);
+  } catch {}
+}
+
 function renderJobState(st) {
+  const prevStatus = lastJobState.status;
   lastJobState = st || {status: 'idle'};
   const running = lastJobState.status === 'running';
   $('btn-start').disabled = running;
   $('btn-sw1-start').disabled = running;
+  $('btn-kh-patch').disabled = running;
   $('btn-stop').classList.toggle('hidden', !running);
   $('btn-sw1-stop').classList.toggle('hidden', !running);
+  $('btn-kh-patch-stop').classList.toggle('hidden', !running);
   lastOutput = lastJobState.lastOutput || null;
   $('btn-open-out').classList.toggle('hidden', !lastOutput || running);
   $('btn-sw1-open-out').classList.toggle('hidden', !lastOutput || running);
+  $('btn-kh-open-out').classList.toggle('hidden', !lastOutput || running || lastJobState.kind !== 'kaihen-patch');
+
   const pill = $('pill-job');
   pill.className = 'pill';
   if (running) { pill.textContent = t('pillRunning'); pill.classList.add('cyan'); }
   else if (lastJobState.status === 'done') { pill.textContent = t('pillDone'); pill.classList.add('ok'); }
   else if (lastJobState.status === 'error') { pill.textContent = t('pillErr'); pill.classList.add('err'); }
   else { pill.textContent = t('pillReady'); }
+
+  if (prevStatus === 'running' && lastJobState.status === 'done' && lastJobState.kind === 'kaihen-patch' && lastOutput) {
+    $('kh-launch-dir').value = lastOutput;
+    inspectKaihenLaunchDir();
+    toast(t('toastKhPatchDone'));
+  }
+}
+
+function renderKaihenState(st) {
+  lastKaihenState = st || {status: 'idle', ready: false, smileBasicCmd: null};
+  const running = lastKaihenState.status === 'running';
+  $('btn-kh-launch').disabled = running;
+  $('btn-kh-stop').classList.toggle('hidden', !running);
+  $('btn-kh-send').disabled = !running;
+
+  const pill = $('pill-kh-run');
+  pill.className = 'pill';
+  if (lastKaihenState.ready) {
+    pill.textContent = t('khActive');
+    pill.classList.add('ok');
+  } else if (running) {
+    pill.textContent = t('khRunning');
+    pill.classList.add('cyan');
+  } else if (lastKaihenState.status === 'error') {
+    pill.textContent = t('pillErr');
+    pill.classList.add('err');
+  } else {
+    pill.textContent = t('khIdle');
+  }
+
+  const cmd = lastKaihenState.smileBasicCmd;
+  $('kh-cmd-banner').classList.toggle('hidden', !cmd);
+  if (cmd) $('kh-cmd-code').textContent = cmd;
+  $('kh-ready-banner').classList.toggle('hidden', !lastKaihenState.ready);
 }
 
 function populateDriveSelect(sel, drives) {
@@ -95,6 +176,25 @@ function populateDriveSelect(sel, drives) {
   }
 }
 
+function populateIpSelect(sel, ips) {
+  const prev = sel.value;
+  sel.innerHTML = '';
+  if (!ips || !ips.length) {
+    const opt = document.createElement('option');
+    opt.value = '';
+    opt.textContent = '(Auto)';
+    sel.appendChild(opt);
+    return;
+  }
+  ips.forEach((item, idx) => {
+    const opt = document.createElement('option');
+    opt.value = item.ip;
+    opt.textContent = `${item.ip} (${item.iface})`;
+    if (prev ? item.ip === prev : idx === 0) opt.selected = true;
+    sel.appendChild(opt);
+  });
+}
+
 function renderEnv(env) {
   lastEnv = env;
   const py = $('pill-py');
@@ -106,9 +206,24 @@ function renderEnv(env) {
   nup.className = 'pill ' + (env.nup.ok ? 'ok' : 'warn');
   $('btn-install-nup').classList.toggle('hidden', env.nup.ok || !env.python.ok);
 
+  const dk = $('pill-docker');
+  if (env.docker && env.docker.ok) {
+    dk.textContent = t('dockerOk', {mode: env.docker.mode});
+    dk.className = 'pill ok';
+  } else {
+    dk.textContent = t('dockerMissing');
+    dk.className = 'pill warn';
+  }
+
   const drives = env.drives && env.drives.length ? env.drives : [{letter: 'D', hasModloader: false}];
   populateDriveSelect($('sd-drive'), drives);
   populateDriveSelect($('sw1-sd-drive'), drives);
+  populateIpSelect($('kh-ip'), env.lanIps || []);
+
+  if (!$('kh-launch-dir').value.trim() && env.defaultPatchedKaihen && env.defaultPatchedKaihen.valid) {
+    $('kh-launch-dir').value = env.defaultPatchedKaihen.path;
+    renderKaihenDirBadge(env.defaultPatchedKaihen);
+  }
 }
 
 async function refreshEnv() {
@@ -118,6 +233,11 @@ async function refreshEnv() {
     logs = env.job.logs || [];
     renderLogs();
     renderJobState(env.job);
+  }
+  if (env.kaihen) {
+    khLogs = env.kaihen.logs || [];
+    renderKhLogs();
+    renderKaihenState(env.kaihen);
   }
 }
 
@@ -154,10 +274,10 @@ $('btn-browse-out').addEventListener('click', async () => {
   } catch (e) { toast(e.message, true); }
 });
 
-/* Mode 2 (Switch 1) browse handlers */
+/* Mode 2 (ExeFS + RomFS) browse handlers */
 $('btn-browse-sw1-parent').addEventListener('click', async () => {
   try {
-    const res = await api('/api/dialog/folder', {method: 'POST', body: JSON.stringify({description: 'Select Switch 1 game folder containing exefs/ and romfs/'})});
+    const res = await api('/api/dialog/folder', {method: 'POST', body: JSON.stringify({description: 'Select game folder containing exefs/ and romfs/'})});
     if (!res.path) return;
     $('sw1-parent').value = res.path;
     const info = await api('/api/sw1/inspect', {method: 'POST', body: JSON.stringify({path: res.path})});
@@ -171,14 +291,14 @@ $('btn-browse-sw1-parent').addEventListener('click', async () => {
 
 $('btn-browse-sw1-exefs').addEventListener('click', async () => {
   try {
-    const res = await api('/api/dialog/folder', {method: 'POST', body: JSON.stringify({description: 'Select unencrypted Switch 1 exefs/ folder'})});
+    const res = await api('/api/dialog/folder', {method: 'POST', body: JSON.stringify({description: 'Select unencrypted exefs/ folder'})});
     if (res.path) $('sw1-exefs').value = res.path;
   } catch (e) { toast(e.message, true); }
 });
 
 $('btn-browse-sw1-romfs-dir').addEventListener('click', async () => {
   try {
-    const res = await api('/api/dialog/folder', {method: 'POST', body: JSON.stringify({description: 'Select unencrypted Switch 1 romfs/ folder'})});
+    const res = await api('/api/dialog/folder', {method: 'POST', body: JSON.stringify({description: 'Select unencrypted romfs/ folder'})});
     if (res.path) $('sw1-romfs').value = res.path;
   } catch (e) { toast(e.message, true); }
 });
@@ -196,6 +316,90 @@ $('btn-browse-sw1-out').addEventListener('click', async () => {
     if (res.path) $('sw1-out-dir').value = res.path;
   } catch (e) { toast(e.message, true); }
 });
+
+/* Mode 3 (kaiHEN) browse & action handlers */
+$('btn-browse-kh-stock').addEventListener('click', async () => {
+  try {
+    const res = await api('/api/dialog/folder', {method: 'POST', body: JSON.stringify({description: 'Select stock kaiHEN folder (optional)'})});
+    if (res.path) $('kh-stock-dir').value = res.path;
+  } catch (e) { toast(e.message, true); }
+});
+
+$('btn-browse-kh-out').addEventListener('click', async () => {
+  try {
+    const res = await api('/api/dialog/folder', {method: 'POST', body: JSON.stringify({description: 'Select output folder for patched kaiHEN'})});
+    if (res.path) $('kh-out-dir').value = res.path;
+  } catch (e) { toast(e.message, true); }
+});
+
+$('btn-browse-kh-launch').addEventListener('click', async () => {
+  try {
+    const res = await api('/api/dialog/folder', {method: 'POST', body: JSON.stringify({description: 'Select patched kaiHEN folder to launch'})});
+    if (res.path) {
+      $('kh-launch-dir').value = res.path;
+      inspectKaihenLaunchDir();
+    }
+  } catch (e) { toast(e.message, true); }
+});
+
+$('kh-launch-dir').addEventListener('change', inspectKaihenLaunchDir);
+
+$('btn-kh-patch').addEventListener('click', async () => {
+  try {
+    logs = [];
+    lastOutput = null;
+    renderLogs();
+    await api('/api/kaihen/patch', {
+      method: 'POST',
+      body: JSON.stringify({
+        stockDir: $('kh-stock-dir').value.trim() || null,
+        outDir: $('kh-out-dir').value.trim() || null
+      })
+    });
+    toast(t('toastKhPatchStarted'));
+  } catch (e) { toast(e.message, true); }
+});
+
+$('btn-kh-launch').addEventListener('click', async () => {
+  const kaihenDir = $('kh-launch-dir').value.trim();
+  if (!kaihenDir) return toast(t('toastKhMissingDir'), true);
+  try {
+    khLogs = [];
+    renderKhLogs();
+    await api('/api/kaihen/start', {
+      method: 'POST',
+      body: JSON.stringify({
+        kaihenDir,
+        ip: $('kh-ip').value || null
+      })
+    });
+    toast(t('toastKhLaunchStarted'));
+  } catch (e) { toast(e.message, true); }
+});
+
+$('btn-kh-stop').addEventListener('click', () => {
+  api('/api/kaihen/stop', {method: 'POST'}).catch(e => toast(e.message, true));
+});
+
+const sendKhStdin = async () => {
+  const text = $('kh-stdin').value;
+  try {
+    await api('/api/kaihen/stdin', {method: 'POST', body: JSON.stringify({text})});
+    $('kh-stdin').value = '';
+  } catch (e) { toast(e.message, true); }
+};
+$('btn-kh-send').addEventListener('click', sendKhStdin);
+$('kh-stdin').addEventListener('keydown', e => { if (e.key === 'Enter') sendKhStdin(); });
+
+$('btn-kh-copy').addEventListener('click', async () => {
+  const txt = $('kh-cmd-code').textContent;
+  if (!txt) return;
+  try {
+    await navigator.clipboard.writeText(txt);
+    toast(t('toastCopied'));
+  } catch { toast(txt); }
+});
+$('btn-kh-clear').addEventListener('click', () => { khLogs = []; renderKhLogs(); });
 
 $('btn-install-nup').addEventListener('click', async () => {
   try {
@@ -265,8 +469,10 @@ const stopJob = () => api('/api/prepare/stop', {method: 'POST'}).catch(e => toas
 const openOut = () => { if (lastOutput) api('/api/open-folder', {method: 'POST', body: JSON.stringify({path: lastOutput})}); };
 $('btn-stop').addEventListener('click', stopJob);
 $('btn-sw1-stop').addEventListener('click', stopJob);
+$('btn-kh-patch-stop').addEventListener('click', stopJob);
 $('btn-open-out').addEventListener('click', openOut);
 $('btn-sw1-open-out').addEventListener('click', openOut);
+$('btn-kh-open-out').addEventListener('click', openOut);
 $('btn-clear-log').addEventListener('click', () => { logs = []; renderLogs(); });
 $('btn-quit').addEventListener('click', async () => {
   await api('/api/shutdown', {method: 'POST'}).catch(() => {});
@@ -277,6 +483,8 @@ $('btn-quit').addEventListener('click', async () => {
 const ev = new EventSource('/api/events');
 ev.addEventListener('state', e => renderJobState(JSON.parse(e.data)));
 ev.addEventListener('log', e => { logs.push(JSON.parse(e.data)); if (logs.length > 500) logs.shift(); renderLogs(); });
+ev.addEventListener('kaihen-state', e => renderKaihenState(JSON.parse(e.data)));
+ev.addEventListener('kaihen-log', e => { khLogs.push(JSON.parse(e.data)); if (khLogs.length > 500) khLogs.shift(); renderKhLogs(); });
 
 applyLanguage();
 refreshEnv().catch(e => toast(e.message, true));
