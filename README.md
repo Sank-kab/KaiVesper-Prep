@@ -79,7 +79,7 @@
 
 ## Credits & Third-Party Software
 
-- Uses **`nup`** (PyPI) for unencrypted `.nup` extraction (installed locally on demand in an isolated Python venv).
+- Uses **[`a55uka/nup`](https://github.com/a55uka/nup)** (MIT) for unencrypted `.nup` extraction (installed locally on demand in an isolated Python venv).
 - Bundles a WebAssembly ZBIC decoder (`lib/zbic.wasm`) built with **Zstandard (`zstd`, BSD-3-Clause / GPL-2.0)** and **WASI libc (MIT / Apache-2.0)**.
 
 ## License

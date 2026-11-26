@@ -75,25 +75,29 @@ function checkPython() {
   return tryCmd('python', []).then(res => res || tryCmd('py', ['-3'])).then(res => res || {ok: false, bin: null, args: [], version: 'Missing'});
 }
 
+const NUP_PACKAGE_SPEC = 'https://github.com/a55uka/nup/archive/refs/heads/main.zip#subdirectory=tools/nup';
+
 function checkNup() {
   const {nupBin} = resolveWindowsNup();
   return new Promise(resolve => {
-    execFile(nupBin, ['--help'], {windowsHide: true, timeout: 5000}, err => {
-      resolve({ok: !err, bin: nupBin});
+    execFile(nupBin, ['--help'], {windowsHide: true, timeout: 5000}, (err, stdout, stderr) => {
+      const out = String(stdout || '') + String(stderr || '');
+      const valid = !err && out.includes('extract') && out.includes('info');
+      resolve({ok: valid, bin: nupBin});
     });
   });
 }
 
 async function installNupNative() {
   const py = await checkPython();
-  if (!py.ok) throw new Error('Python 3.9+ not found on Windows. Install Python from python.org first.');
+  if (!py.ok) throw new Error('Python 3.10+ not found on Windows. Install Python from python.org first.');
   return new Promise((resolve, reject) => {
     const pyExe = path.join(VENV_DIR, 'Scripts', 'python.exe');
     const pipExe = path.join(VENV_DIR, 'Scripts', 'pip.exe');
     const stepPip = () => {
-      execFile(pipExe, ['install', '--upgrade', 'nup'], {windowsHide: true, timeout: 180000, maxBuffer: 4 * 1024 * 1024}, (err, stdout, stderr) => {
+      execFile(pipExe, ['install', '--upgrade', '--force-reinstall', NUP_PACKAGE_SPEC], {windowsHide: true, timeout: 180000, maxBuffer: 4 * 1024 * 1024}, (err, stdout, stderr) => {
         if (err) return reject(new Error((stderr || stdout || err.message).trim()));
-        resolve(String(stdout || '').trim() || 'nup installed on Windows!');
+        resolve(String(stdout || '').trim() || 'nup (a55uka/nup) installed on Windows!');
       });
     };
     if (fs.existsSync(pipExe) && fs.existsSync(pyExe)) return stepPip();
