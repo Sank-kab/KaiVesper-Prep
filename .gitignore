@@ -1,0 +1,16 @@
+__pycache__/
+*.pyc
+*.log
+*.tmp
+*.npdm
+*.nsp
+*.nro
+*.nso
+*.nup
+*.bin
+*.ips
+*.ips32
+host-policies/
+.DS_Store
+Thumbs.db
+desktop.ini

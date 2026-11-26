@@ -1,0 +1,195 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>KaiVesper Prep — Windows Native (.nup &amp; Switch 1 SD Prep)</title>
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+  <div class="container">
+    <header class="topbar">
+      <div class="brand">
+        <div class="logo"><span class="jc l"></span><span class="jc r"></span></div>
+        <div>
+          <h1>KaiVesper Prep</h1>
+          <p class="sub" data-i18n="subtitle">Windows Native .nup &amp; Switch 1 ExeFS/RomFS SD Prep (Zero WSL) · by sank-kab</p>
+        </div>
+      </div>
+      <div class="pills">
+        <select id="lang-select" class="lang-select" aria-label="Language">
+          <option value="en">English</option>
+          <option value="it">Italiano</option>
+          <option value="es">Español</option>
+          <option value="fr">Français</option>
+          <option value="de">Deutsch</option>
+          <option value="ja">日本語</option>
+        </select>
+        <span class="pill" id="pill-py">Python...</span>
+        <span class="pill" id="pill-nup">nup...</span>
+        <button class="btn small accent hidden" id="btn-install-nup" data-i18n="btnInstallNup">1-Click Install nup</button>
+        <button class="btn small danger" id="btn-quit" data-i18n="btnQuit">Quit</button>
+      </div>
+    </header>
+
+    <div class="info-banner" data-i18n-html="hostHintBanner">
+      No Host setup needed here — KaiVesper Prep places games cleanly in <code>/ns2jb-modloader/sw2/</code> or <code>/sw1/</code> on your MicroSD, and you pick your Host directly in <strong>KaiVesper -&gt; Hosts</strong> on Switch 2!
+    </div>
+
+    <div class="mode-tabs">
+      <button class="mode-tab active" id="tab-btn-nup" data-mode="nup" data-i18n="tabNup">Extract .nup</button>
+      <button class="mode-tab" id="tab-btn-sw1" data-mode="sw1" data-i18n="tabSw1">ExeFS + RomFS (SW1 / SW2)</button>
+      <span class="pill" id="pill-job" style="margin-left:auto" data-i18n="pillReady">Ready</span>
+    </div>
+
+    <!-- MODE 1: NUP EXTRACTOR -->
+    <section class="card" id="panel-nup">
+      <div class="card-head">
+        <h2 data-i18n="sec1Title">Extract .nup to MicroSD (ExeFS + RomFS)</h2>
+      </div>
+
+      <div class="grid">
+        <div class="field full">
+          <label for="nup-path" data-i18n="lblNupPath">.nup package file</label>
+          <div class="row">
+            <input type="text" id="nup-path" data-i18n-placeholder="phNupPath" placeholder="e.g. C:\Games\MyPackage.nup" />
+            <button class="btn ghost" id="btn-browse-nup" data-i18n="btnBrowse">Browse...</button>
+          </div>
+        </div>
+
+        <div class="field">
+          <label for="game-name" data-i18n="lblGameName">Profile folder name (no spaces)</label>
+          <input type="text" id="game-name" data-i18n-placeholder="phGameName" placeholder="e.g. my-profile" />
+        </div>
+
+        <div class="field">
+          <label for="dest-mode" data-i18n="lblDestMode">Output destination</label>
+          <select id="dest-mode">
+            <option value="sd" data-i18n="optDestSd">Directly to MicroSD (auto /ns2jb-modloader/sw2 or sw1)</option>
+            <option value="custom" data-i18n="optDestCustom">Local PC folder</option>
+          </select>
+        </div>
+
+        <div class="field" id="sd-field">
+          <label for="sd-drive" data-i18n="lblSdDrive">MicroSD Drive</label>
+          <select id="sd-drive"></select>
+        </div>
+
+        <div class="field hidden" id="custom-out-field">
+          <label for="out-dir" data-i18n="lblOutDir">Local output folder</label>
+          <div class="row">
+            <input type="text" id="out-dir" data-i18n-placeholder="phOutDir" placeholder="Blank = default folder" />
+            <button class="btn ghost" id="btn-browse-out" data-i18n="btnBrowse">Browse...</button>
+          </div>
+        </div>
+
+        <div class="field full">
+          <label class="check">
+            <input type="checkbox" id="auto-patch" checked />
+            <span data-i18n-html="lblAutoPatch">Auto-patch <code>MountTemporaryStorage</code> (23-byte .ips32 if needed — recommended)</span>
+          </label>
+        </div>
+      </div>
+
+      <div class="actions">
+        <button class="btn primary" id="btn-start" data-i18n="btnStart">Extract &amp; Place on SD</button>
+        <button class="btn danger hidden" id="btn-stop" data-i18n="btnStop">Cancel</button>
+        <button class="btn ghost hidden" id="btn-open-out" data-i18n="btnOpenOut">Open output folder</button>
+      </div>
+    </section>
+
+    <!-- MODE 2: UNENCRYPTED EXEFS + ROMFS (SWITCH 1 & SWITCH 2) -->
+    <section class="card hidden" id="panel-sw1">
+      <div class="card-head">
+        <h2 data-i18n="sec2Title">Install Unencrypted ExeFS + RomFS (Switch 1 &amp; Switch 2 -&gt; MicroSD)</h2>
+      </div>
+
+      <div class="grid">
+        <div class="field">
+          <label for="sw1-gen" data-i18n="lblTargetGen">Game type (target folder on SD)</label>
+          <select id="sw1-gen">
+            <option value="sw2" data-i18n="optGenSw2">Switch 2 (/ns2jb-modloader/sw2/)</option>
+            <option value="sw1" data-i18n="optGenSw1">Switch 1 (/ns2jb-modloader/sw1/)</option>
+          </select>
+        </div>
+
+        <div class="field">
+          <label for="sw1-name" data-i18n="lblGameName">Profile folder name (no spaces)</label>
+          <input type="text" id="sw1-name" data-i18n-placeholder="phGameName" placeholder="e.g. my-profile" />
+        </div>
+
+        <div class="field full">
+          <label for="sw1-parent" data-i18n="lblSw1Parent">Quick pick: Game folder containing exefs/ &amp; romfs/ (auto-fills below)</label>
+          <div class="row">
+            <input type="text" id="sw1-parent" data-i18n-placeholder="phSw1Parent" placeholder="Pick a folder that contains exefs/ and romfs/ (or romfs.bin)" />
+            <button class="btn accent" id="btn-browse-sw1-parent" data-i18n="btnPickFolder">Pick Folder...</button>
+          </div>
+        </div>
+
+        <div class="field full">
+          <label for="sw1-exefs" data-i18n="lblSw1Exefs">Unencrypted exefs/ folder (main.npdm is skipped safely)</label>
+          <div class="row">
+            <input type="text" id="sw1-exefs" data-i18n-placeholder="phSw1Exefs" placeholder="e.g. C:\Games\MyGame\exefs" />
+            <button class="btn ghost" id="btn-browse-sw1-exefs" data-i18n="btnBrowse">Browse...</button>
+          </div>
+        </div>
+
+        <div class="field full">
+          <label for="sw1-romfs" data-i18n="lblSw1Romfs">Unencrypted romfs/ folder OR romfs.bin file</label>
+          <div class="row">
+            <input type="text" id="sw1-romfs" data-i18n-placeholder="phSw1Romfs" placeholder="e.g. C:\Games\MyGame\romfs (or romfs.bin)" />
+            <button class="btn ghost" id="btn-browse-sw1-romfs-dir" data-i18n="btnPickFolder">Pick Folder...</button>
+            <button class="btn ghost" id="btn-browse-sw1-romfs-file" data-i18n="btnBrowseFile">File...</button>
+          </div>
+        </div>
+
+        <div class="field">
+          <label for="sw1-dest-mode" data-i18n="lblDestMode">Output destination</label>
+          <select id="sw1-dest-mode">
+            <option value="sd" data-i18n="optDestSd">Directly to MicroSD (auto /ns2jb-modloader/sw2 or sw1)</option>
+            <option value="custom" data-i18n="optDestCustom">Local PC folder</option>
+          </select>
+        </div>
+
+        <div class="field" id="sw1-sd-field">
+          <label for="sw1-sd-drive" data-i18n="lblSdDrive">MicroSD Drive</label>
+          <select id="sw1-sd-drive"></select>
+        </div>
+
+        <div class="field hidden" id="sw1-custom-out-field">
+          <label for="sw1-out-dir" data-i18n="lblOutDir">Local output folder</label>
+          <div class="row">
+            <input type="text" id="sw1-out-dir" data-i18n-placeholder="phOutDir" placeholder="Blank = default folder" />
+            <button class="btn ghost" id="btn-browse-sw1-out" data-i18n="btnBrowse">Browse...</button>
+          </div>
+        </div>
+
+        <div class="field full">
+          <label class="check">
+            <input type="checkbox" id="sw1-pack-romfs" checked />
+            <span data-i18n-html="lblSw1PackRomfs">Pack loose <code>romfs/</code> into <code>romfs.bin</code> on PC (recommended — instant load on Switch 2)</span>
+          </label>
+        </div>
+      </div>
+
+      <div class="actions">
+        <button class="btn primary" id="btn-sw1-start" data-i18n="btnSw1Start">Install ExeFS + RomFS to SD</button>
+        <button class="btn danger hidden" id="btn-sw1-stop" data-i18n="btnStop">Cancel</button>
+        <button class="btn ghost hidden" id="btn-sw1-open-out" data-i18n="btnOpenOut">Open output folder</button>
+      </div>
+    </section>
+
+    <section class="card">
+      <div class="card-head">
+        <h2 data-i18n="sec3Title">Processing Log</h2>
+        <button class="btn small ghost" id="btn-clear-log" data-i18n="btnClear">Clear</button>
+      </div>
+      <pre class="log" id="log-view">Select a .nup file or Switch 1 exefs/romfs folders and click Start.</pre>
+    </section>
+  </div>
+
+  <div class="toast hidden" id="toast"></div>
+  <script src="/i18n.js"></script>
+  <script src="/app.js"></script>
+</body>
+</html>
