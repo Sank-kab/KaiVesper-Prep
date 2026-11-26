@@ -161,9 +161,9 @@ $('btn-browse-sw1-parent').addEventListener('click', async () => {
     if (!res.path) return;
     $('sw1-parent').value = res.path;
     const info = await api('/api/sw1/inspect', {method: 'POST', body: JSON.stringify({path: res.path})});
-    if (info.exefsPath) $('sw1-exefs').value = info.exefsPath;
-    if (info.romfsPath) $('sw1-romfs').value = info.romfsPath;
-    if (info.suggestedName && !$('sw1-name').value.trim()) $('sw1-name').value = info.suggestedName;
+    $('sw1-exefs').value = info.exefsPath || '';
+    $('sw1-romfs').value = info.romfsPath || '';
+    $('sw1-name').value = info.suggestedName || '';
     sw1PatchesDir = info.patchesDir || null;
     toast(t('toastSw1Detected'));
   } catch (e) { toast(e.message, true); }

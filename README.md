@@ -77,6 +77,11 @@
 
 ---
 
+## Credits & Third-Party Software
+
+- Uses **`nup`** (PyPI) for unencrypted `.nup` extraction (installed locally on demand in an isolated Python venv).
+- Bundles a WebAssembly ZBIC decoder (`lib/zbic.wasm`) built with **Zstandard (`zstd`, BSD-3-Clause / GPL-2.0)** and **WASI libc (MIT / Apache-2.0)**.
+
 ## License
 
 Licensed under the **GNU General Public License v2.0 only (`GPL-2.0-only`)**. See [LICENSE](LICENSE) for full terms.
