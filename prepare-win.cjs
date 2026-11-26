@@ -14,24 +14,28 @@ const {execFileSync} = require('node:child_process');
 const {decodeZbic} = require('./lib/zbic.cjs');
 
 const ROOT = __dirname;
-const MERGE_ROMFS = path.join(ROOT, 'lib', 'merge_romfs.py');
+const LIB_DIR = path.join(ROOT, 'lib');
+const MERGE_ROMFS = path.join(LIB_DIR, 'merge_romfs.py');
 const VENV_DIR = path.join(os.homedir(), '.kaivesper-prep', 'nup-venv');
 const DEFAULT_OUT_BASE = path.join(os.homedir(), '.kaivesper-prep', 'ready');
 
 function fail(msg) { throw new Error(msg); }
 function stripQuotes(s) { return String(s || '').trim().replace(/^["']+|["']+$/g, '').trim(); }
 
+function nupEnv() {
+  return {...process.env, PYTHONPATH: LIB_DIR + (process.env.PYTHONPATH ? path.delimiter + process.env.PYTHONPATH : '')};
+}
+
 function resolveWindowsNup() {
-  const nupExe = path.join(VENV_DIR, 'Scripts', 'nup.exe');
   const pyExe = path.join(VENV_DIR, 'Scripts', 'python.exe');
-  if (fs.existsSync(nupExe) && fs.existsSync(pyExe)) {
-    return {nupBin: nupExe, pyBin: pyExe, pyArgs: [], fromVenv: true};
+  if (fs.existsSync(pyExe)) {
+    return {pyBin: pyExe, pyArgs: [], fromVenv: true};
   }
   try {
     execFileSync('python', ['--version'], {stdio: 'ignore', windowsHide: true, timeout: 4000});
-    return {nupBin: 'nup', pyBin: 'python', pyArgs: [], fromVenv: false};
+    return {pyBin: 'python', pyArgs: [], fromVenv: false};
   } catch {}
-  return {nupBin: 'nup', pyBin: 'py', pyArgs: ['-3'], fromVenv: false};
+  return {pyBin: 'py', pyArgs: ['-3'], fromVenv: false};
 }
 
 function decompressLz4Block(src, expectedSize) {
@@ -157,12 +161,17 @@ function copyCleanExefsDir(srcExefsDir, dstExefsDir) {
 }
 
 function parseNupPackages(nupFile) {
-  const {nupBin} = resolveWindowsNup();
+  const {pyBin, pyArgs} = resolveWindowsNup();
   let info;
   try {
-    info = execFileSync(nupBin, ['info', nupFile], {encoding: 'latin1', maxBuffer: 32 * 1024 * 1024, windowsHide: true});
+    info = execFileSync(pyBin, [...pyArgs, '-m', 'nup.cli', 'info', nupFile], {
+      encoding: 'latin1', maxBuffer: 32 * 1024 * 1024, windowsHide: true, env: nupEnv()
+    });
   } catch (err) {
-    if (err && err.code === 'ENOENT') fail('"nup" is not installed on Windows yet! Click "1-Click Install nup" at the top.');
+    const msg = String(err && (err.stderr || err.message) || '');
+    if (msg.includes('zstandard') || (err && err.code === 'ENOENT')) {
+      fail('NUP runtime (zstandard) is not installed yet! Click "1-Click Install nup" at the top.');
+    }
     throw err;
   }
   const pkgs = [];
@@ -210,7 +219,9 @@ with NupReader(nup_file) as r:
                 f.write(r._mm[off + pos:off + pos + chunk])
                 pos += chunk
 `;
-  execFileSync(pyBin, [...pyArgs, '-c', py, nupFile, String(baseIdx), String(updateIdx), destDir], {stdio: 'inherit', windowsHide: true});
+  execFileSync(pyBin, [...pyArgs, '-c', py, nupFile, String(baseIdx), String(updateIdx), destDir], {
+    stdio: 'inherit', windowsHide: true, env: nupEnv()
+  });
 }
 
 function resolveDestination({gameName, genFolder, outDir, sdDrive}) {
@@ -227,7 +238,7 @@ function resolveDestination({gameName, genFolder, outDir, sdDrive}) {
 /* Mode 1: Extract .nup -> exefs/ + romfs.bin + optional .ips32 patch
  * Automatically placed in <SD>:\ns2jb-modloader\sw2\<gameName>\ (or sw1\<gameName>\ for 01... packages). */
 function prepareNup({nupPath, gameName, outDir = null, sdDrive = null, autoPatch = true}) {
-  const {nupBin, pyBin, pyArgs} = resolveWindowsNup();
+  const {pyBin, pyArgs} = resolveWindowsNup();
   nupPath = stripQuotes(nupPath);
   outDir = stripQuotes(outDir);
   if (!nupPath || !gameName) fail('Specify both a .nup file and a profile name.');
@@ -258,7 +269,9 @@ function prepareNup({nupPath, gameName, outDir = null, sdDrive = null, autoPatch
     // 1) Extract ExeFS
     const exefsTmp = path.join(tmpDir, 'exefs-extract');
     console.log(`\n[1/3] Extracting ExeFS from package [${codePkg.index}] ${codePkg.kind}...`);
-    execFileSync(nupBin, ['extract', '--package', String(codePkg.index), '--subtree', 'exefs', nupFile, exefsTmp], {stdio: 'inherit', windowsHide: true});
+    execFileSync(pyBin, [...pyArgs, '-m', 'nup.cli', 'extract', '--package', String(codePkg.index), '--subtree', 'exefs', nupFile, exefsTmp], {
+      stdio: 'inherit', windowsHide: true, env: nupEnv()
+    });
     const exefsSrc = fs.existsSync(path.join(exefsTmp, 'main')) ? exefsTmp : path.join(exefsTmp, 'exefs');
 
     // 2) Copy clean ExeFS NSOs (skipping main.npdm so ANY Host chosen on console works!) + auto-patch
@@ -285,7 +298,9 @@ function prepareNup({nupPath, gameName, outDir = null, sdDrive = null, autoPatch
     const mainRomfsTmp = path.join(tmpDir, 'romfs-main');
     const baseOnlyTmp = path.join(tmpDir, 'romfs-base-only');
     fs.mkdirSync(baseOnlyTmp, {recursive: true});
-    execFileSync(nupBin, ['extract', '--package', String(codePkg.index), '--subtree', 'romfs', nupFile, mainRomfsTmp], {stdio: 'inherit', windowsHide: true});
+    execFileSync(pyBin, [...pyArgs, '-m', 'nup.cli', 'extract', '--package', String(codePkg.index), '--subtree', 'romfs', nupFile, mainRomfsTmp], {
+      stdio: 'inherit', windowsHide: true, env: nupEnv()
+    });
     const mainRomfsDir = fs.existsSync(path.join(mainRomfsTmp, 'romfs')) ? path.join(mainRomfsTmp, 'romfs') : mainRomfsTmp;
     if (updatePkg && basePkg && updatePkg.index !== basePkg.index) {
       console.log('      Base + Update detected: merging base-only files...');
@@ -464,4 +479,4 @@ if (require.main === module) {
   }
 }
 
-module.exports = {resolveWindowsNup, prepareNup, prepareSw1, inspectSw1Folder, VENV_DIR, DEFAULT_OUT_BASE};
+module.exports = {resolveWindowsNup, nupEnv, prepareNup, prepareSw1, inspectSw1Folder, VENV_DIR, DEFAULT_OUT_BASE};
