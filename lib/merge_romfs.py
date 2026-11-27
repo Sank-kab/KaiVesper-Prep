@@ -303,9 +303,11 @@ def main():
     ap.add_argument("--base-only", type=Path, required=True)
     ap.add_argument("--image", type=Path, required=True)
     ap.add_argument("--expect-files", type=int)
+    ap.add_argument("--exact-update", action="store_true",
+                    help="Treat --update as the exact RomFS root (do not descend into a child 'romfs' subdir)")
     a = ap.parse_args()
     update = a.update.expanduser()
-    if (update / "romfs").is_dir():
+    if not a.exact_update and (update / "romfs").is_dir():
         update /= "romfs"
     base = a.base_only.expanduser()
     image = a.image.expanduser()

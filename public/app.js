@@ -284,31 +284,46 @@ $('btn-browse-sw1-parent').addEventListener('click', async () => {
     $('sw1-exefs').value = info.exefsPath || '';
     $('sw1-romfs').value = info.romfsPath || '';
     $('sw1-name').value = info.suggestedName || '';
+    if (info.detectedGen) $('sw1-gen').value = info.detectedGen;
     sw1PatchesDir = info.patchesDir || null;
-    toast(t('toastSw1Detected'));
+    toast(t('toastSw1Detected') + (info.detectedGen ? ` (${info.detectedGen.toUpperCase()})` : ''));
   } catch (e) { toast(e.message, true); }
 });
 
 $('btn-browse-sw1-exefs').addEventListener('click', async () => {
   try {
     const res = await api('/api/dialog/folder', {method: 'POST', body: JSON.stringify({description: 'Select unencrypted exefs/ folder'})});
-    if (res.path) $('sw1-exefs').value = res.path;
+    if (res.path) {
+      $('sw1-exefs').value = res.path;
+      sw1PatchesDir = null;
+      const info = await api('/api/sw1/inspect', {method: 'POST', body: JSON.stringify({path: res.path})}).catch(() => null);
+      if (info && info.detectedGen) $('sw1-gen').value = info.detectedGen;
+    }
   } catch (e) { toast(e.message, true); }
 });
 
 $('btn-browse-sw1-romfs-dir').addEventListener('click', async () => {
   try {
     const res = await api('/api/dialog/folder', {method: 'POST', body: JSON.stringify({description: 'Select unencrypted romfs/ folder'})});
-    if (res.path) $('sw1-romfs').value = res.path;
+    if (res.path) {
+      $('sw1-romfs').value = res.path;
+      sw1PatchesDir = null;
+    }
   } catch (e) { toast(e.message, true); }
 });
 
 $('btn-browse-sw1-romfs-file').addEventListener('click', async () => {
   try {
     const res = await api('/api/dialog/file', {method: 'POST', body: JSON.stringify({kind: 'romfs'})});
-    if (res.path) $('sw1-romfs').value = res.path;
+    if (res.path) {
+      $('sw1-romfs').value = res.path;
+      sw1PatchesDir = null;
+    }
   } catch (e) { toast(e.message, true); }
 });
+
+$('sw1-exefs').addEventListener('input', () => { sw1PatchesDir = null; });
+$('sw1-romfs').addEventListener('input', () => { sw1PatchesDir = null; });
 
 $('btn-browse-sw1-out').addEventListener('click', async () => {
   try {

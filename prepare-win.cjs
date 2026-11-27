@@ -307,7 +307,7 @@ function prepareNup({nupPath, gameName, outDir = null, sdDrive = null, autoPatch
       extractBaseOnlyRomfs(nupFile, basePkg.index, updatePkg.index, baseOnlyTmp);
     }
     const romfsOut = path.join(finalOut, 'romfs.bin');
-    execFileSync(pyBin, [...pyArgs, MERGE_ROMFS, '--update', mainRomfsDir, '--base-only', baseOnlyTmp, '--image', romfsOut, 'build'], {stdio: 'inherit', windowsHide: true});
+    execFileSync(pyBin, [...pyArgs, MERGE_ROMFS, '--exact-update', '--update', mainRomfsDir, '--base-only', baseOnlyTmp, '--image', romfsOut, 'build'], {stdio: 'inherit', windowsHide: true});
 
     const romSize = fs.statSync(romfsOut).size;
     console.log(`\nREADY! Profile installed to:\n  ${finalOut}`);
@@ -321,7 +321,41 @@ function prepareNup({nupPath, gameName, outDir = null, sdDrive = null, autoPatch
   }
 }
 
-/* Inspects a Switch 1 unencrypted game folder to auto-detect exefs/, romfs/ or romfs.bin, and exefs_patches/. */
+/* Auto-detects Switch 1 (sw1) vs Switch 2 (sw2) from exefs/main.npdm (ACI0 Program ID)
+ * or fallback to exefs/main NSO0 compression flags (ZBIC = sw2, LZ4 = sw1). */
+function detectExefsGen(exefsDir) {
+  if (!exefsDir || !fs.existsSync(exefsDir)) return {gen: null, titleId: null, source: null};
+  const npdmPath = path.join(exefsDir, 'main.npdm');
+  if (fs.existsSync(npdmPath)) {
+    try {
+      const npdm = fs.readFileSync(npdmPath);
+      if (npdm.length >= 0x78 && npdm.toString('ascii', 0, 4) === 'META') {
+        const aci0Off = npdm.readUInt32LE(0x70);
+        if (aci0Off + 0x18 <= npdm.length && npdm.toString('ascii', aci0Off, aci0Off + 4) === 'ACI0') {
+          const tid = npdm.readBigUInt64LE(aci0Off + 0x10).toString(16).padStart(16, '0');
+          if (tid.startsWith('01')) return {gen: 'sw1', titleId: tid, source: 'npdm'};
+          if (tid.startsWith('04')) return {gen: 'sw2', titleId: tid, source: 'npdm'};
+        }
+      }
+    } catch {}
+  }
+  const mainPath = path.join(exefsDir, 'main');
+  if (fs.existsSync(mainPath)) {
+    try {
+      const fd = fs.openSync(mainPath, 'r');
+      const hdr = Buffer.alloc(0x10);
+      try { fs.readSync(fd, hdr, 0, 0x10, 0); } finally { fs.closeSync(fd); }
+      if (hdr.toString('ascii', 0, 4) === 'NSO0') {
+        const flags = hdr.readUInt32LE(0x0c);
+        if (flags & 0x40) return {gen: 'sw2', titleId: null, source: 'nso-zbic'};
+        if (flags & 0x07) return {gen: 'sw1', titleId: null, source: 'nso-lz4'};
+      }
+    } catch {}
+  }
+  return {gen: null, titleId: null, source: null};
+}
+
+/* Inspects an unencrypted game folder to auto-detect exefs/, romfs/ or romfs.bin, exefs_patches/, and SW1/SW2 gen. */
 function inspectSw1Folder(folderPath) {
   const dir = path.resolve(stripQuotes(folderPath));
   if (!fs.existsSync(dir) || !fs.statSync(dir).isDirectory()) {
@@ -340,13 +374,17 @@ function inspectSw1Folder(folderPath) {
   const romfsBin = findChild(['romfs.bin'], false);
   const romfsDir = findChild(['romfs'], true);
   const patchesDir = findChild(['exefs_patches'], true);
+  const det = detectExefsGen(exefsPath);
   return {
     folder: dir,
     suggestedName: path.basename(dir).toLowerCase().replace(/[^a-z0-9._-]+/g, '-').replace(/^-+|-+$/g, ''),
     exefsPath,
     romfsPath: romfsBin || romfsDir || null,
     romfsIsFile: Boolean(romfsBin),
-    patchesDir
+    patchesDir,
+    detectedGen: det.gen,
+    detectedTitleId: det.titleId,
+    detectedSource: det.source
   };
 }
 
@@ -434,7 +472,7 @@ function prepareSw1({exefsPath = null, romfsPath = null, patchesDir = null, game
           console.log('\n[2/2] Packing loose romfs/ into romfs.bin directly on PC (fast load on Switch 2)...');
           const romfsOut = path.join(finalOut, 'romfs.bin');
           try {
-            execFileSync(pyBin, [...pyArgs, MERGE_ROMFS, '--update', resolvedRom, '--base-only', emptyBase, '--image', romfsOut, 'build'], {stdio: 'inherit', windowsHide: true});
+            execFileSync(pyBin, [...pyArgs, MERGE_ROMFS, '--exact-update', '--update', resolvedRom, '--base-only', emptyBase, '--image', romfsOut, 'build'], {stdio: 'inherit', windowsHide: true});
           } catch (err) {
             if (err && err.code === 'ENOENT') {
               fail('Python 3.9+ is required to pack romfs/ on PC (install Python from python.org, or uncheck "Pack romfs/ on PC" to let KaiVesper pack it on Switch 2).');
