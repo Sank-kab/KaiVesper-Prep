@@ -126,7 +126,7 @@ function stopKaihen() {
       const k = spawn('wsl.exe', [...kaihenJob.wslPrefix, 'bash', '-s'], {windowsHide: true, stdio: ['pipe', 'ignore', 'ignore']});
       k.on('error', () => {});
       k.stdin.on('error', () => {});
-      k.stdin.end("pkill -f '/[.]kaivesper-prep/ns2jb/hen[.]cjs'; pkill -f '/[.]kaivesper-prep/ns2jb/run[.]cjs'; exit 0\n");
+      k.stdin.end("pkill -f '/[.]kaivesper-prep/ns2jb/'; exit 0\n");
     } catch {}
   }
 }
@@ -247,6 +247,7 @@ async function launchKaihen({kaihenDir, ip, ns2jbDir}) {
   kaihenJob.dir = targetDir;
   kaihenJob.ip = ip || null;
   kaihenJob.smileBasicCmd = null;
+  kaihenJob.wslPrefix = null;
   broadcast('kaihen-state', getKaihenState());
 
   let resolvedNs2jb;
@@ -312,7 +313,7 @@ async function launchKaihen({kaihenDir, ip, ns2jbDir}) {
   proc.on('close', code => {
     const wasReady = kaihenJob.ready;
     kaihenJob.proc = null;
-    stopKaihen();
+    if (!kaihenJob.stopping) stopKaihen();
     kaihenJob.status = kaihenJob.stopping ? 'idle' : ((code === 0 || wasReady) ? 'done' : 'error');
     pushKaihenLog('info', `--- kaiHEN launcher exited (code ${code}) ---`);
     broadcast('kaihen-state', getKaihenState());

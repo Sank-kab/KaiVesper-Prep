@@ -119,6 +119,57 @@ async function detectWslNode() {
   return {ok: false, distro: null, nodeBin: null, version: null};
 }
 
+async function downloadFile(url, destPath) {
+  fs.mkdirSync(path.dirname(destPath), {recursive: true});
+  try {
+    const res = await fetch(url, {
+      redirect: 'follow',
+      headers: {'User-Agent': 'KaiVesper-Prep/1.0', 'Accept': '*/*'}
+    });
+    if (res.ok) {
+      const buf = Buffer.from(await res.arrayBuffer());
+      fs.writeFileSync(destPath, buf);
+      return buf.length;
+    }
+    if (process.platform !== 'win32') throw new Error(`HTTP ${res.status} downloading ${url}`);
+  } catch (err) {
+    if (process.platform !== 'win32') throw err;
+  }
+  const r = await execQuiet('curl.exe', ['-fsSL', '--retry', '2', '-o', destPath, url], 120000);
+  if (!r.ok || !fs.existsSync(destPath) || fs.statSync(destPath).size === 0) {
+    throw new Error(`Download failed for ${url}: ${r.stderr || r.stdout || r.err?.message || 'empty file'}`);
+  }
+  return fs.statSync(destPath).size;
+}
+
+async function extractZip(zipPath, destDir) {
+  fs.mkdirSync(destDir, {recursive: true});
+  const psScript = `Expand-Archive -LiteralPath '${zipPath.replace(/'/g, "''")}' -DestinationPath '${destDir.replace(/'/g, "''")}' -Force`;
+  const r = await execQuiet('powershell.exe', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command', psScript], 120000);
+  if (!r.ok) throw new Error(`ZIP extraction failed: ${r.stderr || r.stdout || r.err?.message}`);
+}
+
+function findDirContaining(rootDir, relPaths, maxDepth = 4) {
+  const check = dir => relPaths.every(rp => fs.existsSync(path.join(dir, rp)));
+  const walk = (dir, depth) => {
+    if (check(dir)) return dir;
+    if (depth >= maxDepth) return null;
+    for (const ent of fs.readdirSync(dir, {withFileTypes: true})) {
+      if (!ent.isDirectory()) continue;
+      const found = walk(path.join(dir, ent.name), depth + 1);
+      if (found) return found;
+    }
+    return null;
+  };
+  return walk(rootDir, 0);
+}
+
+function sha256File(filePath) {
+  const h = crypto.createHash('sha256');
+  h.update(fs.readFileSync(filePath));
+  return h.digest('hex');
+}
+
 function inspectKaihenDir(dirPath) {
   if (!dirPath || !fs.existsSync(dirPath)) return {valid: false, patched: false, path: dirPath || null};
   const hasRo = fs.existsSync(path.join(dirPath, 'ro', 'main'));

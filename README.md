@@ -21,7 +21,7 @@
 
 ## Overview
 
-**KaiVesper Prep** is a lightweight, **100% native Windows** companion app for **[KaiVesper](https://github.com/Sank-kab/KaiVesper)** (`kaivesper.nro`):
+**KaiVesper Prep** is a lightweight Windows companion app for **[KaiVesper](https://github.com/Sank-kab/KaiVesper)** (`kaivesper.nro`):
 - **Zero WSL required** for `.nup` extraction and `ExeFS / RomFS` installation (WSL2 is only used by **`Launch kaiHEN`**)
 - **Zero `npm install` / zero external Node dependencies**
 - **1-Click Patched `kaiHEN` Builder & WSL2-based Launcher** built right in
