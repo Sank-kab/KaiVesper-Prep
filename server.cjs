@@ -220,8 +220,14 @@ function startWorker(scriptName, flag, payload, kind) {
   job.lastOutput = null;
   broadcast('state', getJobState());
 
-  const proc = spawn(process.execPath, [path.join(__dirname, scriptName), flag, JSON.stringify(payload)], {windowsHide: true});
+  const proc = spawn(process.execPath, [path.join(__dirname, scriptName), flag, JSON.stringify(payload)], {
+    windowsHide: true,
+    stdio: ['ignore', 'pipe', 'pipe', 'ipc']
+  });
   job.proc = proc;
+  proc.on('message', msg => {
+    if (msg && typeof msg.output === 'string') job.lastOutput = msg.output;
+  });
   proc.stdout.on('data', d => pushLog('stdout', d));
   proc.stderr.on('data', d => pushLog('stderr', d));
   proc.on('error', err => pushLog('stderr', 'Process error: ' + err.message));
@@ -453,7 +459,10 @@ const server = http.createServer(async (req, res) => {
 
     if (pathname === '/api/open-folder' && req.method === 'POST') {
       const body = await readBody(req);
-      if (body.path && fs.existsSync(body.path)) openInExplorer(body.path);
+      if (!body.path || !fs.existsSync(body.path)) {
+        return sendJson(res, 404, {error: 'Output folder not found: ' + (body.path || '(empty)')});
+      }
+      await openInExplorer(body.path);
       return sendJson(res, 200, {ok: true});
     }
 

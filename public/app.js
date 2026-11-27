@@ -481,7 +481,12 @@ $('btn-sw1-start').addEventListener('click', async () => {
 });
 
 const stopJob = () => api('/api/prepare/stop', {method: 'POST'}).catch(e => toast(e.message, true));
-const openOut = () => { if (lastOutput) api('/api/open-folder', {method: 'POST', body: JSON.stringify({path: lastOutput})}); };
+const openOut = () => {
+  if (lastOutput) {
+    api('/api/open-folder', {method: 'POST', body: JSON.stringify({path: lastOutput})})
+      .catch(e => toast(e.message, true));
+  }
+};
 $('btn-stop').addEventListener('click', stopJob);
 $('btn-sw1-stop').addEventListener('click', stopJob);
 $('btn-kh-patch-stop').addEventListener('click', stopJob);

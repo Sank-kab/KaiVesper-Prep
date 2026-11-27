@@ -187,6 +187,7 @@ function extractBaseOnlyRomfs(nupFile, baseIdx, updateIdx, destDir) {
   const {pyBin, pyArgs} = resolveWindowsNup();
   const py = `
 import sys, pathlib
+from nup import format as F
 from nup.read import NupReader
 from nup.access import iter_children
 nup_file, base_idx, upd_idx, dest = sys.argv[1], int(sys.argv[2]), int(sys.argv[3]), pathlib.Path(sys.argv[4])
@@ -196,7 +197,7 @@ def walk_romfs(r, dir_idx, prefix=""):
     if dir_idx == 0xFFFFFFFF:
         return out
     for node in iter_children(r, dir_idx):
-        name = node.name.decode("utf-8")
+        name = node.name.decode("utf-8", "surrogateescape")
         rel = f"{prefix}/{name}" if prefix else name
         if node.is_dir:
             out.update(walk_romfs(r, node.index, rel))
@@ -211,13 +212,16 @@ with NupReader(nup_file) as r:
     for rel, fi in base_only:
         out = dest / rel
         out.parent.mkdir(parents=True, exist_ok=True)
-        _, off, size, _, _ = r.files[fi]
-        with out.open('wb') as f:
-            pos = 0
-            while pos < size:
-                chunk = min(4 * 1024 * 1024, size - pos)
-                f.write(r._mm[off + pos:off + pos + chunk])
-                pos += chunk
+        _, size, _, eoff, _, codec = r.files[fi]
+        if codec == F.CODEC_RAW:
+            with out.open('wb') as f:
+                pos = 0
+                while pos < size:
+                    chunk = min(4 * 1024 * 1024, size - pos)
+                    f.write(r._mm[eoff + pos:eoff + pos + chunk])
+                    pos += chunk
+        else:
+            out.write_bytes(r.read_file(fi))
 `;
   execFileSync(pyBin, [...pyArgs, '-c', py, nupFile, String(baseIdx), String(updateIdx), destDir], {
     stdio: 'inherit', windowsHide: true, env: nupEnv()
@@ -233,6 +237,19 @@ function resolveDestination({gameName, genFolder, outDir, sdDrive}) {
     return path.join(`${letter}:\\`, 'ns2jb-modloader', genFolder, gameName);
   }
   return path.join(DEFAULT_OUT_BASE, genFolder, gameName);
+}
+
+function reportOutput(dir) {
+  if (typeof process.send === 'function') process.send({output: dir});
+}
+
+function ensureNewDestination(opts) {
+  const finalOut = resolveDestination(opts);
+  if (fs.existsSync(finalOut)) {
+    reportOutput(finalOut);
+    fail('Destination folder already exists: ' + finalOut);
+  }
+  return finalOut;
 }
 
 /* Mode 1: Extract .nup -> exefs/ + romfs.bin + optional .ips32 patch
@@ -253,8 +270,7 @@ function prepareNup({nupPath, gameName, outDir = null, sdDrive = null, autoPatch
   const isSw1 = codePkg.titleId.startsWith('01');
   const genFolder = isSw1 ? 'sw1' : 'sw2';
 
-  const finalOut = resolveDestination({gameName, genFolder, outDir, sdDrive});
-  if (fs.existsSync(finalOut)) fail('Destination folder already exists: ' + finalOut);
+  const finalOut = ensureNewDestination({gameName, genFolder, outDir, sdDrive});
 
   console.log(`Detected package type: ${isSw1 ? 'Switch 1 (01...)' : 'Switch 2 (04...)'}`);
   console.log(`NUP packages found:    ${pkgs.map(p => `[${p.index}] ${p.kind} (${p.titleId})`).join(', ')}`);
@@ -269,7 +285,7 @@ function prepareNup({nupPath, gameName, outDir = null, sdDrive = null, autoPatch
     // 1) Extract ExeFS
     const exefsTmp = path.join(tmpDir, 'exefs-extract');
     console.log(`\n[1/3] Extracting ExeFS from package [${codePkg.index}] ${codePkg.kind}...`);
-    execFileSync(pyBin, [...pyArgs, '-m', 'nup.cli', 'extract', '--package', String(codePkg.index), '--subtree', 'exefs', nupFile, exefsTmp], {
+    execFileSync(pyBin, [...pyArgs, '-m', 'nup.cli', 'extract', '--package', codePkg.kind, '--subtree', 'exefs', nupFile, exefsTmp], {
       stdio: 'inherit', windowsHide: true, env: nupEnv()
     });
     const exefsSrc = fs.existsSync(path.join(exefsTmp, 'main')) ? exefsTmp : path.join(exefsTmp, 'exefs');
@@ -298,7 +314,7 @@ function prepareNup({nupPath, gameName, outDir = null, sdDrive = null, autoPatch
     const mainRomfsTmp = path.join(tmpDir, 'romfs-main');
     const baseOnlyTmp = path.join(tmpDir, 'romfs-base-only');
     fs.mkdirSync(baseOnlyTmp, {recursive: true});
-    execFileSync(pyBin, [...pyArgs, '-m', 'nup.cli', 'extract', '--package', String(codePkg.index), '--subtree', 'romfs', nupFile, mainRomfsTmp], {
+    execFileSync(pyBin, [...pyArgs, '-m', 'nup.cli', 'extract', '--package', codePkg.kind, '--subtree', 'romfs', nupFile, mainRomfsTmp], {
       stdio: 'inherit', windowsHide: true, env: nupEnv()
     });
     const mainRomfsDir = fs.existsSync(path.join(mainRomfsTmp, 'romfs')) ? path.join(mainRomfsTmp, 'romfs') : mainRomfsTmp;
@@ -310,6 +326,7 @@ function prepareNup({nupPath, gameName, outDir = null, sdDrive = null, autoPatch
     execFileSync(pyBin, [...pyArgs, MERGE_ROMFS, '--exact-update', '--update', mainRomfsDir, '--base-only', baseOnlyTmp, '--image', romfsOut, 'build'], {stdio: 'inherit', windowsHide: true});
 
     const romSize = fs.statSync(romfsOut).size;
+    reportOutput(finalOut);
     console.log(`\nREADY! Profile installed to:\n  ${finalOut}`);
     console.log(`  exefs/: ${(copied.totalBytes / 1024 / 1024).toFixed(1)} MB (${copied.modules.length} NSO)  |  romfs.bin: ${(romSize / 1024 / 1024 / 1024).toFixed(2)} GB`);
     return finalOut;
@@ -403,8 +420,7 @@ function prepareSw1({exefsPath = null, romfsPath = null, patchesDir = null, game
   if (!/^[A-Za-z0-9._-]+$/.test(gameName)) fail('Profile name may only contain letters, digits, dots, hyphens, and underscores.');
   if (!exefsPath && !romfsPath) fail('Select at least an exefs/ folder or a romfs/ folder (or romfs.bin).');
 
-  const finalOut = resolveDestination({gameName, genFolder, outDir, sdDrive});
-  if (fs.existsSync(finalOut)) fail('Destination folder already exists: ' + finalOut);
+  const finalOut = ensureNewDestination({gameName, genFolder, outDir, sdDrive});
 
   console.log(`${genLabel} Unencrypted Installer -> ${finalOut}`);
   console.log(`(Choose your ${genLabel} Host directly inside KaiVesper -> Hosts tab on Switch 2!)`);
@@ -490,6 +506,7 @@ function prepareSw1({exefsPath = null, romfsPath = null, patchesDir = null, game
       console.log('\n[2/2] No romfs/ specified (ExeFS-only install).');
     }
 
+    reportOutput(finalOut);
     console.log(`\nREADY! ${genLabel} profile installed to:\n  ${finalOut}`);
     return finalOut;
   } catch (err) {
