@@ -187,6 +187,7 @@ function extractBaseOnlyRomfs(nupFile, baseIdx, updateIdx, destDir) {
   const {pyBin, pyArgs} = resolveWindowsNup();
   const py = `
 import sys, pathlib
+from nup import format as F
 from nup.read import NupReader
 from nup.access import iter_children
 nup_file, base_idx, upd_idx, dest = sys.argv[1], int(sys.argv[2]), int(sys.argv[3]), pathlib.Path(sys.argv[4])
@@ -196,7 +197,7 @@ def walk_romfs(r, dir_idx, prefix=""):
     if dir_idx == 0xFFFFFFFF:
         return out
     for node in iter_children(r, dir_idx):
-        name = node.name.decode("utf-8")
+        name = node.name.decode("utf-8", "surrogateescape")
         rel = f"{prefix}/{name}" if prefix else name
         if node.is_dir:
             out.update(walk_romfs(r, node.index, rel))
@@ -211,13 +212,16 @@ with NupReader(nup_file) as r:
     for rel, fi in base_only:
         out = dest / rel
         out.parent.mkdir(parents=True, exist_ok=True)
-        _, off, size, _, _ = r.files[fi]
-        with out.open('wb') as f:
-            pos = 0
-            while pos < size:
-                chunk = min(4 * 1024 * 1024, size - pos)
-                f.write(r._mm[off + pos:off + pos + chunk])
-                pos += chunk
+        _, size, _, eoff, _, codec = r.files[fi]
+        if codec == F.CODEC_RAW:
+            with out.open('wb') as f:
+                pos = 0
+                while pos < size:
+                    chunk = min(4 * 1024 * 1024, size - pos)
+                    f.write(r._mm[eoff + pos:eoff + pos + chunk])
+                    pos += chunk
+        else:
+            out.write_bytes(r.read_file(fi))
 `;
   execFileSync(pyBin, [...pyArgs, '-c', py, nupFile, String(baseIdx), String(updateIdx), destDir], {
     stdio: 'inherit', windowsHide: true, env: nupEnv()
