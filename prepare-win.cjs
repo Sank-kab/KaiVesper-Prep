@@ -239,6 +239,19 @@ function resolveDestination({gameName, genFolder, outDir, sdDrive}) {
   return path.join(DEFAULT_OUT_BASE, genFolder, gameName);
 }
 
+function reportOutput(dir) {
+  if (typeof process.send === 'function') process.send({output: dir});
+}
+
+function ensureNewDestination(opts) {
+  const finalOut = resolveDestination(opts);
+  if (fs.existsSync(finalOut)) {
+    reportOutput(finalOut);
+    fail('Destination folder already exists: ' + finalOut);
+  }
+  return finalOut;
+}
+
 /* Mode 1: Extract .nup -> exefs/ + romfs.bin + optional .ips32 patch
  * Automatically placed in <SD>:\ns2jb-modloader\sw2\<gameName>\ (or sw1\<gameName>\ for 01... packages). */
 function prepareNup({nupPath, gameName, outDir = null, sdDrive = null, autoPatch = true}) {
@@ -257,8 +270,7 @@ function prepareNup({nupPath, gameName, outDir = null, sdDrive = null, autoPatch
   const isSw1 = codePkg.titleId.startsWith('01');
   const genFolder = isSw1 ? 'sw1' : 'sw2';
 
-  const finalOut = resolveDestination({gameName, genFolder, outDir, sdDrive});
-  if (fs.existsSync(finalOut)) fail('Destination folder already exists: ' + finalOut);
+  const finalOut = ensureNewDestination({gameName, genFolder, outDir, sdDrive});
 
   console.log(`Detected package type: ${isSw1 ? 'Switch 1 (01...)' : 'Switch 2 (04...)'}`);
   console.log(`NUP packages found:    ${pkgs.map(p => `[${p.index}] ${p.kind} (${p.titleId})`).join(', ')}`);
@@ -314,6 +326,7 @@ function prepareNup({nupPath, gameName, outDir = null, sdDrive = null, autoPatch
     execFileSync(pyBin, [...pyArgs, MERGE_ROMFS, '--exact-update', '--update', mainRomfsDir, '--base-only', baseOnlyTmp, '--image', romfsOut, 'build'], {stdio: 'inherit', windowsHide: true});
 
     const romSize = fs.statSync(romfsOut).size;
+    reportOutput(finalOut);
     console.log(`\nREADY! Profile installed to:\n  ${finalOut}`);
     console.log(`  exefs/: ${(copied.totalBytes / 1024 / 1024).toFixed(1)} MB (${copied.modules.length} NSO)  |  romfs.bin: ${(romSize / 1024 / 1024 / 1024).toFixed(2)} GB`);
     return finalOut;
@@ -407,8 +420,7 @@ function prepareSw1({exefsPath = null, romfsPath = null, patchesDir = null, game
   if (!/^[A-Za-z0-9._-]+$/.test(gameName)) fail('Profile name may only contain letters, digits, dots, hyphens, and underscores.');
   if (!exefsPath && !romfsPath) fail('Select at least an exefs/ folder or a romfs/ folder (or romfs.bin).');
 
-  const finalOut = resolveDestination({gameName, genFolder, outDir, sdDrive});
-  if (fs.existsSync(finalOut)) fail('Destination folder already exists: ' + finalOut);
+  const finalOut = ensureNewDestination({gameName, genFolder, outDir, sdDrive});
 
   console.log(`${genLabel} Unencrypted Installer -> ${finalOut}`);
   console.log(`(Choose your ${genLabel} Host directly inside KaiVesper -> Hosts tab on Switch 2!)`);
@@ -494,6 +506,7 @@ function prepareSw1({exefsPath = null, romfsPath = null, patchesDir = null, game
       console.log('\n[2/2] No romfs/ specified (ExeFS-only install).');
     }
 
+    reportOutput(finalOut);
     console.log(`\nREADY! ${genLabel} profile installed to:\n  ${finalOut}`);
     return finalOut;
   } catch (err) {

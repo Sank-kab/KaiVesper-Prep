@@ -416,6 +416,7 @@ async function patchAndBuildKaihen(opts = {}) {
     log(`  ${henTargetRel.padEnd(13)} : ${fs.statSync(path.join(outDir, henTargetRel)).size} B (sha256 ${meta.sha256[henTargetRel].slice(0, 12)}...)`);
     log(`  bootstrap.bin : ${fs.statSync(path.join(outDir, 'bootstrap.bin')).size} B (sha256 ${meta.sha256['bootstrap.bin'].slice(0, 12)}...)`);
     log('');
+    if (typeof process.send === 'function') process.send({output: outDir});
     log('DONE! Patched kaiHEN ready for Launch kaiHEN:');
     log(`  ${outDir}`);
     return outDir;

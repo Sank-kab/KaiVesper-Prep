@@ -220,8 +220,14 @@ function startWorker(scriptName, flag, payload, kind) {
   job.lastOutput = null;
   broadcast('state', getJobState());
 
-  const proc = spawn(process.execPath, [path.join(__dirname, scriptName), flag, JSON.stringify(payload)], {windowsHide: true});
+  const proc = spawn(process.execPath, [path.join(__dirname, scriptName), flag, JSON.stringify(payload)], {
+    windowsHide: true,
+    stdio: ['ignore', 'pipe', 'pipe', 'ipc']
+  });
   job.proc = proc;
+  proc.on('message', msg => {
+    if (msg && typeof msg.output === 'string') job.lastOutput = msg.output;
+  });
   proc.stdout.on('data', d => pushLog('stdout', d));
   proc.stderr.on('data', d => pushLog('stderr', d));
   proc.on('error', err => pushLog('stderr', 'Process error: ' + err.message));
