@@ -285,7 +285,7 @@ function prepareNup({nupPath, gameName, outDir = null, sdDrive = null, autoPatch
     // 1) Extract ExeFS
     const exefsTmp = path.join(tmpDir, 'exefs-extract');
     console.log(`\n[1/3] Extracting ExeFS from package [${codePkg.index}] ${codePkg.kind}...`);
-    execFileSync(pyBin, [...pyArgs, '-m', 'nup.cli', 'extract', '--package', String(codePkg.index), '--subtree', 'exefs', nupFile, exefsTmp], {
+    execFileSync(pyBin, [...pyArgs, '-m', 'nup.cli', 'extract', '--package', codePkg.kind, '--subtree', 'exefs', nupFile, exefsTmp], {
       stdio: 'inherit', windowsHide: true, env: nupEnv()
     });
     const exefsSrc = fs.existsSync(path.join(exefsTmp, 'main')) ? exefsTmp : path.join(exefsTmp, 'exefs');
@@ -314,7 +314,7 @@ function prepareNup({nupPath, gameName, outDir = null, sdDrive = null, autoPatch
     const mainRomfsTmp = path.join(tmpDir, 'romfs-main');
     const baseOnlyTmp = path.join(tmpDir, 'romfs-base-only');
     fs.mkdirSync(baseOnlyTmp, {recursive: true});
-    execFileSync(pyBin, [...pyArgs, '-m', 'nup.cli', 'extract', '--package', String(codePkg.index), '--subtree', 'romfs', nupFile, mainRomfsTmp], {
+    execFileSync(pyBin, [...pyArgs, '-m', 'nup.cli', 'extract', '--package', codePkg.kind, '--subtree', 'romfs', nupFile, mainRomfsTmp], {
       stdio: 'inherit', windowsHide: true, env: nupEnv()
     });
     const mainRomfsDir = fs.existsSync(path.join(mainRomfsTmp, 'romfs')) ? path.join(mainRomfsTmp, 'romfs') : mainRomfsTmp;
