@@ -55,49 +55,171 @@ function decompressLz4Block(src, expectedSize) {
   return out.subarray(0, o);
 }
 
+function readNsoSegment(d, segIdx) {
+  const flags = d.readUInt32LE(12);
+  const foff = d.readUInt32LE(0x10 + segIdx * 16);
+  const vaddr = d.readUInt32LE(0x14 + segIdx * 16);
+  const usize = d.readUInt32LE(0x18 + segIdx * 16);
+  const csize = d.readUInt32LE(0x60 + segIdx * 4);
+  let data;
+  if (flags & (1 << segIdx)) {
+    if (flags & 0xc0) data = decodeZbic(d.subarray(foff, foff + csize), usize);
+    else data = decompressLz4Block(d.subarray(foff, foff + csize), usize);
+  } else {
+    data = d.subarray(foff, foff + usize);
+  }
+  return {vaddr, usize, data};
+}
+
 function readNsoRodata(file) {
   const d = fs.readFileSync(file);
   if (d.length < 0x100 || d.toString('ascii', 0, 4) !== 'NSO0') fail('Invalid NSO file: ' + file);
-  const flags = d.readUInt32LE(12);
-  const roff = d.readUInt32LE(0x20), rsize = d.readUInt32LE(0x28), rcomp = d.readUInt32LE(0x64);
   const buildId = d.subarray(0x40, 0x60).toString('hex');
   const dynstrOff = d.readUInt32LE(0x90), dynstrSize = d.readUInt32LE(0x94);
   const dynsymOff = d.readUInt32LE(0x98), dynsymSize = d.readUInt32LE(0x9c);
-  let ro;
-  if (flags & 0x40) ro = decodeZbic(d.subarray(roff, roff + rcomp), rsize);
-  else if (flags & 2) ro = decompressLz4Block(d.subarray(roff, roff + rcomp), rsize);
-  else ro = d.subarray(roff, roff + rsize);
-  return {buildId, ro, dynstrOff, dynstrSize, dynsymOff, dynsymSize};
+  const roSeg = readNsoSegment(d, 1);
+  return {raw: d, buildId, ro: roSeg.data, dynstrOff, dynstrSize, dynsymOff, dynsymSize};
 }
 
-function detectTempStoragePatch(exefsDir) {
-  const mainFile = path.join(exefsDir, 'main'), sdkFile = path.join(exefsDir, 'sdk');
-  if (!fs.existsSync(mainFile) || !fs.existsSync(sdkFile)) return null;
-  const mainInfo = readNsoRodata(mainFile);
-  const sym = '_ZN2nn2fs21MountTemporaryStorageEPKc';
-  if (!mainInfo.ro.toString('latin1').includes(sym)) return null;
-  const sdkInfo = readNsoRodata(sdkFile);
+function findSdkSymbols(sdkInfo, wantedSet) {
+  const found = new Map();
   for (let off = sdkInfo.dynsymOff; off + 24 <= sdkInfo.dynsymOff + sdkInfo.dynsymSize; off += 24) {
     const nameIdx = sdkInfo.ro.readUInt32LE(off);
     const val = Number(sdkInfo.ro.readBigUInt64LE(off + 8));
+    const size = Number(sdkInfo.ro.readBigUInt64LE(off + 16));
+    if (val <= 0) continue;
     const start = sdkInfo.dynstrOff + nameIdx;
     const end = sdkInfo.ro.indexOf(0, start);
     if (end < 0) continue;
     const name = sdkInfo.ro.subarray(start, end).toString('utf8');
-    if (name === sym && val > 0) {
-      const ipsOffset = val + 0x100;
-      const code = Buffer.alloc(8);
-      code.writeUInt32LE(0x52800000, 0); // mov w0, #0
-      code.writeUInt32LE(0xd65f03c0, 4); // ret
-      const header = Buffer.alloc(11);
-      header.write('IPS32', 0, 'ascii');
-      header.writeUInt32BE(ipsOffset, 5);
-      header.writeUInt16BE(code.length, 9);
-      const bytes = Buffer.concat([header, code, Buffer.from('EEOF', 'ascii')]);
-      return {buildId: sdkInfo.buildId, vaddr: val, ipsOffset, bytes};
+    if (wantedSet.has(name)) {
+      found.set(name, {vaddr: val, size});
+      if (found.size === wantedSet.size) break;
     }
   }
-  return null;
+  return found;
+}
+
+function encodeArm64Branch(fromVa, toVa) {
+  const diff = toVa - fromVa;
+  if ((diff & 3) !== 0 || Math.abs(diff) >= 0x08000000) return null;
+  return (0x14000000 | (((diff / 4) & 0x03ffffff) >>> 0)) >>> 0;
+}
+
+function buildIps32(records) {
+  const sorted = [...records].sort((a, b) => a.ipsOffset - b.ipsOffset);
+  const parts = [Buffer.from('IPS32', 'ascii')];
+  for (const r of sorted) {
+    const hdr = Buffer.alloc(6);
+    hdr.writeUInt32BE(r.ipsOffset >>> 0, 0);
+    hdr.writeUInt16BE(r.code.length, 4);
+    parts.push(hdr, r.code);
+  }
+  parts.push(Buffer.from('EEOF', 'ascii'));
+  return Buffer.concat(parts);
+}
+
+/* Scans exefs/ (main, subsdk*, sdk) and generates a combined IPS32 micro-patch for sdk when needed:
+ *  1) Stubs nn::fs::MountTemporaryStorage -> mov w0,#0; ret (avoids crash on Hosts without temp storage).
+ *  2) Tail-calls nn::oe::FinishStartupLogo from an imported nn::oe init hook when the game itself does not
+ *     call FinishStartupLogo (dismisses startup logos cleanly on Manual-Logo Hosts). */
+function detectAutoSdkPatches(exefsDir) {
+  const mainFile = path.join(exefsDir, 'main'), sdkFile = path.join(exefsDir, 'sdk');
+  if (!fs.existsSync(mainFile) || !fs.existsSync(sdkFile)) return null;
+
+  const mainInfo = readNsoRodata(mainFile);
+  const mainStr = mainInfo.ro.toString('latin1');
+
+  const TEMP_SYM = '_ZN2nn2fs21MountTemporaryStorageEPKc';
+  const LOGO_SYM = '_ZN2nn2oe17FinishStartupLogoEv';
+  const OE_HOOK_CANDIDATES = [
+    '_ZN2nn2oe42SetOperationModeChangedNotificationEnabledEb',
+    '_ZN2nn2oe28SetResumeNotificationEnabledEb',
+    '_ZN2nn2oe44SetPerformanceModeChangedNotificationEnabledEb',
+    '_ZN2nn2oe42SetGraphicsScaleChangedNotificationEnabledEb'
+  ];
+
+  const needsTempPatch = mainStr.includes(TEMP_SYM);
+
+  // Check if main or any subsdk already imports FinishStartupLogo
+  let hasFinishLogo = mainStr.includes(LOGO_SYM);
+  if (!hasFinishLogo) {
+    for (const f of fs.readdirSync(exefsDir)) {
+      if (!/^subsdk\d+$/i.test(f)) continue;
+      try {
+        const subInfo = readNsoRodata(path.join(exefsDir, f));
+        if (subInfo.ro.toString('latin1').includes(LOGO_SYM)) {
+          hasFinishLogo = true;
+          break;
+        }
+      } catch {}
+    }
+  }
+  const matchedOeHook = hasFinishLogo ? null : (OE_HOOK_CANDIDATES.find(s => mainStr.includes(s)) || null);
+
+  if (!needsTempPatch && !matchedOeHook) return null;
+
+  const sdkInfo = readNsoRodata(sdkFile);
+  const wanted = new Set();
+  if (needsTempPatch) wanted.add(TEMP_SYM);
+  if (matchedOeHook) { wanted.add(LOGO_SYM); wanted.add(matchedOeHook); }
+  const syms = findSdkSymbols(sdkInfo, wanted);
+
+  const records = [];
+  const applied = [];
+
+  if (needsTempPatch && syms.has(TEMP_SYM)) {
+    const sym = syms.get(TEMP_SYM);
+    const code = Buffer.alloc(8);
+    code.writeUInt32LE(0x52800000, 0); // mov w0, #0
+    code.writeUInt32LE(0xd65f03c0, 4); // ret
+    records.push({ipsOffset: sym.vaddr + 0x100, code});
+    applied.push('MountTemporaryStorage');
+  }
+
+  if (matchedOeHook && syms.has(LOGO_SYM) && syms.has(matchedOeHook)) {
+    const finishSym = syms.get(LOGO_SYM);
+    const hookSym = syms.get(matchedOeHook);
+    const textSeg = readNsoSegment(sdkInfo.raw, 0);
+    const relStart = hookSym.vaddr - textSeg.vaddr;
+    const fnLen = hookSym.size || 0x50;
+    if (relStart >= 0 && relStart + fnLen <= textSeg.data.length) {
+      let retOff = -1, isPac = false;
+      for (let off = 4; off + 4 <= fnLen; off += 4) {
+        const insn = textSeg.data.readUInt32LE(relStart + off);
+        if (insn === 0xd65f0fff) { retOff = off; isPac = true; break; }  // retab
+        if (insn === 0xd65f03c0) { retOff = off; isPac = false; break; } // ret
+      }
+      if (retOff >= 0) {
+        const retVa = hookSym.vaddr + retOff;
+        if (isPac && retOff + 8 <= fnLen) {
+          const bInsn = encodeArm64Branch(retVa + 4, finishSym.vaddr);
+          if (bInsn !== null) {
+            const code = Buffer.alloc(8);
+            code.writeUInt32LE(0xd50323ff, 0); // autiasp
+            code.writeUInt32LE(bInsn, 4);      // b FinishStartupLogo
+            records.push({ipsOffset: retVa + 0x100, code});
+            applied.push('FinishStartupLogo');
+          }
+        } else if (!isPac) {
+          const bInsn = encodeArm64Branch(retVa, finishSym.vaddr);
+          if (bInsn !== null) {
+            const code = Buffer.alloc(4);
+            code.writeUInt32LE(bInsn, 0);      // b FinishStartupLogo
+            records.push({ipsOffset: retVa + 0x100, code});
+            applied.push('FinishStartupLogo');
+          }
+        }
+      }
+    }
+  }
+
+  if (!records.length) return null;
+  return {buildId: sdkInfo.buildId, applied, bytes: buildIps32(records)};
+}
+
+function detectTempStoragePatch(exefsDir) {
+  return detectAutoSdkPatches(exefsDir);
 }
 
 function copyFileStream(src, dst) {
@@ -282,14 +404,14 @@ function prepareNup({nupPath, gameName, outDir = null, sdDrive = null, autoPatch
     console.log(`      Modules copied: ${copied.modules.join(', ')} (${(copied.totalBytes / 1024 / 1024).toFixed(1)} MB)`);
 
     if (autoPatch) {
-      const patch = detectTempStoragePatch(exefsSrc);
+      const patch = detectAutoSdkPatches(exefsSrc);
       if (patch) {
         const patchDir = path.join(finalOut, 'exefs_patches');
         fs.mkdirSync(patchDir, {recursive: true});
         fs.writeFileSync(path.join(patchDir, patch.buildId + '.ips32'), patch.bytes);
-        console.log(`      [AUTO-PATCH] MountTemporaryStorage detected! Patch created: exefs_patches/${patch.buildId}.ips32`);
+        console.log(`      [AUTO-PATCH] Applied ${patch.applied.join(' + ')}: exefs_patches/${patch.buildId}.ips32`);
       } else {
-        console.log('      No MountTemporaryStorage import in main (no patch needed).');
+        console.log('      No SDK auto-patches needed (FinishStartupLogo present, no MountTemporaryStorage).');
       }
     }
 
@@ -440,15 +562,15 @@ function prepareSw1({exefsPath = null, romfsPath = null, patchesDir = null, game
 
       if (is64Bit) {
         try {
-          const patch = detectTempStoragePatch(resolvedExe);
+          const patch = detectAutoSdkPatches(resolvedExe);
           if (patch) {
             const patchDir = path.join(finalOut, 'exefs_patches');
             fs.mkdirSync(patchDir, {recursive: true});
             fs.writeFileSync(path.join(patchDir, patch.buildId + '.ips32'), patch.bytes);
-            console.log(`      [AUTO-PATCH] MountTemporaryStorage detected! Patch created: exefs_patches/${patch.buildId}.ips32`);
+            console.log(`      [AUTO-PATCH] Applied ${patch.applied.join(' + ')}: exefs_patches/${patch.buildId}.ips32`);
           }
         } catch (e) {
-          console.log('      [WARN] Skipped MountTemporaryStorage check: ' + e.message);
+          console.log('      [WARN] Skipped SDK auto-patch check: ' + e.message);
         }
       }
     } else {
@@ -517,4 +639,4 @@ if (require.main === module) {
   }
 }
 
-module.exports = {resolveWindowsNup, nupEnv, prepareNup, prepareSw1, inspectSw1Folder, VENV_DIR, DEFAULT_OUT_BASE};
+module.exports = {resolveWindowsNup, nupEnv, prepareNup, prepareSw1, inspectSw1Folder, detectAutoSdkPatches, VENV_DIR, DEFAULT_OUT_BASE};
