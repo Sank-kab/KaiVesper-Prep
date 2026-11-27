@@ -16,6 +16,9 @@ from .pack import pack
 from .read import NupReader
 from .verify import verify
 
+if hasattr(sys.stdout, "reconfigure") and (sys.stdout.encoding or "").lower() != "utf-8":
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+
 if TYPE_CHECKING:
     from .discover import FileObj
     from .read import NodeRef
