@@ -453,7 +453,10 @@ const server = http.createServer(async (req, res) => {
 
     if (pathname === '/api/open-folder' && req.method === 'POST') {
       const body = await readBody(req);
-      if (body.path && fs.existsSync(body.path)) openInExplorer(body.path);
+      if (!body.path || !fs.existsSync(body.path)) {
+        return sendJson(res, 404, {error: 'Output folder not found: ' + (body.path || '(empty)')});
+      }
+      await openInExplorer(body.path);
       return sendJson(res, 200, {ok: true});
     }
 
