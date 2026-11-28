@@ -113,6 +113,8 @@ function renderJobState(st) {
   const running = lastJobState.status === 'running';
   $('btn-start').disabled = running;
   $('btn-sw1-start').disabled = running;
+  $('btn-patch-sd').disabled = running;
+  $('btn-sw1-patch-sd').disabled = running;
   $('btn-kh-patch').disabled = running;
   $('btn-stop').classList.toggle('hidden', !running);
   $('btn-sw1-stop').classList.toggle('hidden', !running);
@@ -479,6 +481,20 @@ $('btn-sw1-start').addEventListener('click', async () => {
     toast(t('toastStarted'));
   } catch (e) { toast(e.message, true); }
 });
+
+const runPatchSd = async (selectId) => {
+  const sdDrive = $(selectId).value;
+  if (!sdDrive) return toast(t('toastNoSdDrive'), true);
+  try {
+    logs = [];
+    lastOutput = null;
+    renderLogs();
+    await api('/api/patch-sd', {method: 'POST', body: JSON.stringify({sdDrive})});
+    toast(t('toastPatchSdStarted'));
+  } catch (e) { toast(e.message, true); }
+};
+$('btn-patch-sd').addEventListener('click', () => runPatchSd('sd-drive'));
+$('btn-sw1-patch-sd').addEventListener('click', () => runPatchSd('sw1-sd-drive'));
 
 const stopJob = () => api('/api/prepare/stop', {method: 'POST'}).catch(e => toast(e.message, true));
 const openOut = () => { if (lastOutput) api('/api/open-folder', {method: 'POST', body: JSON.stringify({path: lastOutput})}); };

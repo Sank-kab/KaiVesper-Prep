@@ -379,6 +379,13 @@ const server = http.createServer(async (req, res) => {
       return sendJson(res, 200, {ok: true});
     }
 
+    if (pathname === '/api/patch-sd' && req.method === 'POST') {
+      if (job.proc) return sendJson(res, 409, {error: 'A task is already running!'});
+      const body = await readBody(req);
+      startWorker('prepare-win.cjs', '--patch-sd-json', body, 'patch-sd');
+      return sendJson(res, 200, {ok: true});
+    }
+
     if (pathname === '/api/kaihen/patch' && req.method === 'POST') {
       if (job.proc) return sendJson(res, 409, {error: 'A task is already running!'});
       const body = await readBody(req);

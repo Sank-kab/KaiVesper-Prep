@@ -33,19 +33,23 @@
 
 1. **Tab 1 — Extract `.nup` to MicroSD (`ExeFS + RomFS`):**
    - Automatically detects **Switch 2 (`04...`)** vs **Switch 1 (`01...`)** packages from Title ID.
-   - Extracts clean unencrypted `NSO0` executables into `exefs/` (automatically skipping `main.npdm`).
-   - Automatically detects and generates the 23-byte `MountTemporaryStorage` `.ips32` patch in `exefs_patches/` when needed (supports both Switch 2 ZBIC and Switch 1 LZ4 NSOs via bundled WebAssembly ZBIC decoder).
+   - Extracts clean unencrypted `NSO0` executables into `exefs/` (skipping `main.npdm` while exporting only its 128-byte unsigned `META` header to `exefs/meta.bin` so KaiVesper automatically merges `SystemResourceSize` and `MainThreadStackSize` into any Host's signed `main.npdm`).
+   - **Universal SDK Auto-Patcher (`exefs_patches/<sdkBuildId>.ips32`):**
+     - **`FinishStartupLogo` micro-patch:** automatically detects games that never call `nn::oe::FinishStartupLogo()` and injects a PAC-safe tail-call so startup logos dismiss cleanly even on `Manual Logo` Hosts.
+     - **`MountTemporaryStorage -> RamDisk` trampoline:** automatically redirects `nn::fs::MountTemporaryStorage` to a userland `nn::fs::MountRamDisk` buffer (16 MiB, with 4 MiB / `malloc` fallbacks — zero FS IPC, zero NACP `TemporaryStorageSize` required) so temporary saves work on any Host.
    - Merges Base + Update RomFS and packs a ready-to-load `romfs.bin` directly onto your MicroSD (`<SD>:\ns2jb-modloader\sw2\<name>\` or `sw1\<name>\`).
 2. **Tab 2 — Install Unencrypted `ExeFS + RomFS` (`Switch 1` & `Switch 2` → MicroSD):**
    - Supports **both Switch 2 (`/sw2/`) and Switch 1 (`/sw1/`)** already-extracted unencrypted `exefs/` + `romfs/` (or `romfs.bin`) folders.
-   - **Quick-Pick Auto-Detect:** select a parent game folder to auto-fill `exefs/`, `romfs/` (or `romfs.bin`), `exefs_patches/`, and profile name.
-   - Automatically skips `main.npdm`, inspects NPDM architecture (`64-bit` vs `32-bit` & `SystemResourceSize`), auto-patches `MountTemporaryStorage` if needed, and optionally packs loose `romfs/` into `romfs.bin` on PC for instant loading on Switch 2.
-3. **Tab 3 — `kaiHEN (Patch & Launch)`:**
+   - **Quick-Pick Auto-Detect:** select a parent game folder to auto-fill `exefs/`, `romfs/` (or `romfs.bin`), `exefs_patches/`, `sw1`/`sw2` generation, and profile name.
+   - Exports `exefs/meta.bin`, applies the same universal SDK auto-patches (`FinishStartupLogo` + `MountTemporaryStorage -> RamDisk`), and optionally packs loose `romfs/` into `romfs.bin` on PC for instant loading on Switch 2.
+3. **1-Click `Patch Existing SD Games` (available in Tab 1 & Tab 2):**
+   - Scans every game profile already on `<SD>:\ns2jb-modloader\` (`sw2/`, `sw1/`, `contents/`) and applies or updates `FinishStartupLogo`, `MountTemporaryStorage -> RamDisk`, and `exefs/meta.bin` **in place** — without re-extracting or re-copying multi-gigabyte `romfs.bin` images!
+4. **Tab 3 — `kaiHEN (Patch & Launch)`:**
    - **1-Click `Patch & Build kaiHEN`:** automatically downloads `ouncebrew/kaihen` (`20261117.1`) and the 3 public `ro:dmnt` FS helper patches from `nicholasyoannou/switch2-modbridge` (`kaihen/patches/*.patch`), compiles `ro/main`, `hen/main`, and `bootstrap.bin` inside Docker (`ounce-devkit:latest`, auto-built on first run if missing), and assembles a ready-to-launch patched kaiHEN folder (`%USERPROFILE%\.kaivesper-prep\kaiHEN-20261117.1-kaivesper-patched` by default).
    - **1-Click `Launch kaiHEN` (via WSL2):** automatically downloads `ns2jb` (`hen.cjs` / `run.cjs`) on first launch and runs it cleanly via **WSL2 + Node.js** (required because `ns2jb` uses Linux Unix domain sockets `.sock`), with a **PC LAN IP selector**, live **SmileBASIC Direct-mode `V=START(...)` command banner** (+ Copy button), interactive **stdin** input, and an automatic **`kaiHEN Active!`** status indicator.
-4. **6-Language Interface (English default):**
+5. **6-Language Interface (English default):**
    - English, Italiano, Español, Français, Deutsch, 日本語 (persisted in browser storage).
-5. **Native Windows Ergonomics:**
+6. **Native Windows Ergonomics:**
    - Native Windows file/folder pickers, automatic MicroSD drive detection, 1-click native Windows `nup` installer (isolated Python venv in `%USERPROFILE%\.kaivesper-prep\nup-venv`), stale-server auto-restart, and safe process-tree cancellation (`taskkill /T /F`).
 
 ---

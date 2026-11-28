@@ -106,6 +106,120 @@ function encodeArm64Branch(fromVa, toVa) {
   return (0x14000000 | (((diff / 4) & 0x03ffffff) >>> 0)) >>> 0;
 }
 
+function encodeArm64Bl(fromVa, toVa) {
+  const diff = toVa - fromVa;
+  if ((diff & 3) !== 0 || Math.abs(diff) >= 0x08000000) return null;
+  return (0x94000000 | (((diff / 4) & 0x03ffffff) >>> 0)) >>> 0;
+}
+
+/* Finds the PLT stub VA for an imported symbol (e.g. "malloc") inside an NSO (e.g. sdk). */
+function findNsoPltSymbol(rawNso, textSeg, roSeg, targetName) {
+  try {
+    const dataSeg = readNsoSegment(rawNso, 2);
+    const segs = [textSeg, roSeg, dataSeg];
+    const r32 = va => {
+      for (const s of segs) if (va >= s.vaddr && va + 4 <= s.vaddr + s.data.length) return s.data.readUInt32LE(va - s.vaddr);
+      return 0;
+    };
+    const r64 = va => {
+      for (const s of segs) if (va >= s.vaddr && va + 8 <= s.vaddr + s.data.length) return Number(s.data.readBigUInt64LE(va - s.vaddr));
+      return 0;
+    };
+    const rcs = va => {
+      for (const s of segs) if (va >= s.vaddr && va < s.vaddr + s.data.length) {
+        const st = va - s.vaddr, en = s.data.indexOf(0, st);
+        return s.data.subarray(st, en < 0 ? st + 64 : en).toString('utf8');
+      }
+      return '';
+    };
+    const modOff = textSeg.data.readUInt32LE(4);
+    const dynVa = modOff + (r32(modOff + 4) | 0);
+    let strtab = 0, symtab = 0, jmprel = 0, pltrelsz = 0;
+    for (let o = 0; o < 0x1000; o += 16) {
+      const tag = r64(dynVa + o), val = r64(dynVa + o + 8);
+      if (tag === 0) break;
+      if (tag === 5) strtab = val;
+      else if (tag === 6) symtab = val;
+      else if (tag === 23) jmprel = val;
+      else if (tag === 2) pltrelsz = val;
+    }
+    if (!strtab || !symtab || !jmprel || !pltrelsz) return 0;
+    let targetGot = 0;
+    for (let o = 0; o < pltrelsz; o += 24) {
+      const rOff = r64(jmprel + o), rInfo = r64(jmprel + o + 8);
+      const symIdx = Math.floor(rInfo / 0x100000000);
+      if (rcs(strtab + r32(symtab + symIdx * 24)) === targetName) {
+        targetGot = rOff;
+        break;
+      }
+    }
+    if (!targetGot) return 0;
+    for (let o = 0; o + 16 <= textSeg.data.length; o += 4) {
+      const i0 = textSeg.data.readUInt32LE(o), i1 = textSeg.data.readUInt32LE(o + 4);
+      if (((i0 & 0x9f00001f) >>> 0) === 0x90000010 && ((i1 & 0xffc003ff) >>> 0) === 0xf9400211) {
+        const pc = textSeg.vaddr + o;
+        const immlo = (i0 >>> 29) & 3, immhi = (i0 >>> 5) & 0x7ffff;
+        let imm = (immhi << 2) | immlo;
+        if (imm & 0x100000) imm -= 0x200000;
+        const got = (pc & ~0xfff) + imm * 4096 + ((i1 >>> 10) & 0xfff) * 8;
+        if (got === targetGot) return pc;
+      }
+    }
+  } catch {}
+  return 0;
+}
+
+/* Builds a PAC-aware AArch64 trampoline inside MountTemporaryStorage(const char* name)
+ * that redirects it to nn::fs::MountRamDisk(name, buf, size) using a 16 MiB (fallback 4 MiB)
+ * userland RAM buffer — 0 FS IPC, 0 NACP TemporaryStorageSize required, works on EVERY Host! */
+function buildTempStorageRamDiskTrampoline(tempSym, ramDiskVa, allocMemVa, mallocVa, isPac) {
+  if (!tempSym || (tempSym.size && tempSym.size < 128)) return null;
+  const base = tempSym.vaddr;
+  const blAlloc1 = encodeArm64Bl(base + 0x24, allocMemVa);
+  const blAlloc2 = encodeArm64Bl(base + 0x40, allocMemVa);
+  const blMalloc = mallocVa ? encodeArm64Bl(base + 0x54, mallocVa) : 0xaa1f03e0; // mov x0, xzr if unavailable
+  const blMount  = encodeArm64Bl(base + 0x68, ramDiskVa);
+  if (blAlloc1 === null || blAlloc2 === null || blMalloc === null || blMount === null) return null;
+
+  const insns = [
+    isPac ? 0xd503237f : 0xd503201f, // +0x00: paciasp / nop
+    0xa9bd7bfd,                      // +0x04: stp x29, x30, [sp, #-0x30]!
+    0xa90153f3,                      // +0x08: stp x19, x20, [sp, #0x10]
+    0x910003fd,                      // +0x0c: mov x29, sp
+    0xaa0003f3,                      // +0x10: mov x19, x0              (mountName)
+    0xd2a02014,                      // +0x14: movz x20, #0x100, lsl #16 (16 MiB)
+    0xf90013ff,                      // +0x18: str xzr, [sp, #0x20]
+    0x910083e0,                      // +0x1c: add x0, sp, #0x20        (&outAddr)
+    0xaa1403e1,                      // +0x20: mov x1, x20              (16 MiB)
+    blAlloc1,                        // +0x24: bl nn::os::AllocateMemoryBlock
+    0x35000060,                      // +0x28: cbnz w0, +0x0c (+0x34)
+    0xf94013e1,                      // +0x2c: ldr x1, [sp, #0x20]
+    0xb5000181,                      // +0x30: cbnz x1, +0x30 (+0x60 do_mount)
+    0xd2a00814,                      // +0x34: movz x20, #0x40, lsl #16 (4 MiB fallback)
+    0x910083e0,                      // +0x38: add x0, sp, #0x20
+    0xaa1403e1,                      // +0x3c: mov x1, x20
+    blAlloc2,                        // +0x40: bl nn::os::AllocateMemoryBlock
+    0x35000060,                      // +0x44: cbnz w0, +0x0c (+0x50)
+    0xf94013e1,                      // +0x48: ldr x1, [sp, #0x20]
+    0xb50000a1,                      // +0x4c: cbnz x1, +0x14 (+0x60 do_mount)
+    0xaa1403e0,                      // +0x50: mov x0, x20              (4 MiB)
+    blMalloc,                        // +0x54: bl PLT:malloc
+    0xaa0003e1,                      // +0x58: mov x1, x0
+    0xb40000a1,                      // +0x5c: cbz x1, +0x14 (+0x70 fail_ret0)
+    0xaa1303e0,                      // +0x60: mov x0, x19              (do_mount: mountName)
+    0xaa1403e2,                      // +0x64: mov x2, x20              (bufferSize)
+    blMount,                         // +0x68: bl nn::fs::MountRamDisk
+    0x14000002,                      // +0x6c: b +0x08 (+0x74 done)
+    0x2a1f03e0,                      // +0x70: mov w0, wzr              (fail_ret0: return 0)
+    0xa94153f3,                      // +0x74: ldp x19, x20, [sp, #0x10] (done)
+    0xa8c37bfd,                      // +0x78: ldp x29, x30, [sp], #0x30
+    isPac ? 0xd65f0fff : 0xd65f03c0  // +0x7c: retab / ret
+  ];
+  const code = Buffer.alloc(insns.length * 4);
+  for (let i = 0; i < insns.length; i++) code.writeUInt32LE(insns[i] >>> 0, i * 4);
+  return code;
+}
+
 function buildIps32(records) {
   const sorted = [...records].sort((a, b) => a.ipsOffset - b.ipsOffset);
   const parts = [Buffer.from('IPS32', 'ascii')];
@@ -131,6 +245,8 @@ function detectAutoSdkPatches(exefsDir) {
   const mainStr = mainInfo.ro.toString('latin1');
 
   const TEMP_SYM = '_ZN2nn2fs21MountTemporaryStorageEPKc';
+  const RAMDISK_SYM = '_ZN2nn2fs12MountRamDiskEPKcPvm';
+  const ALLOC_MEM_SYM = '_ZN2nn2os19AllocateMemoryBlockEPmm';
   const LOGO_SYM = '_ZN2nn2oe17FinishStartupLogoEv';
   const OE_HOOK_CANDIDATES = [
     '_ZN2nn2oe42SetOperationModeChangedNotificationEnabledEb',
@@ -161,26 +277,39 @@ function detectAutoSdkPatches(exefsDir) {
 
   const sdkInfo = readNsoRodata(sdkFile);
   const wanted = new Set();
-  if (needsTempPatch) wanted.add(TEMP_SYM);
+  if (needsTempPatch) { wanted.add(TEMP_SYM); wanted.add(RAMDISK_SYM); wanted.add(ALLOC_MEM_SYM); wanted.add('malloc'); }
   if (matchedOeHook) { wanted.add(LOGO_SYM); wanted.add(matchedOeHook); }
   const syms = findSdkSymbols(sdkInfo, wanted);
+  const textSeg = readNsoSegment(sdkInfo.raw, 0);
+  const roSeg = {vaddr: sdkInfo.raw.readUInt32LE(0x24), data: sdkInfo.ro};
 
   const records = [];
   const applied = [];
 
   if (needsTempPatch && syms.has(TEMP_SYM)) {
-    const sym = syms.get(TEMP_SYM);
-    const code = Buffer.alloc(8);
-    code.writeUInt32LE(0x52800000, 0); // mov w0, #0
-    code.writeUInt32LE(0xd65f03c0, 4); // ret
-    records.push({ipsOffset: sym.vaddr + 0x100, code});
-    applied.push('MountTemporaryStorage');
+    const tempSym = syms.get(TEMP_SYM);
+    const rel = tempSym.vaddr - textSeg.vaddr;
+    const isPac = rel >= 0 && rel + 4 <= textSeg.data.length && textSeg.data.readUInt32LE(rel) === 0xd503237f;
+    let code = null;
+    if (syms.has(RAMDISK_SYM) && syms.has(ALLOC_MEM_SYM)) {
+      const mallocVa = syms.has('malloc') ? syms.get('malloc').vaddr : findNsoPltSymbol(sdkInfo.raw, textSeg, roSeg, 'malloc');
+      code = buildTempStorageRamDiskTrampoline(tempSym, syms.get(RAMDISK_SYM).vaddr, syms.get(ALLOC_MEM_SYM).vaddr, mallocVa, isPac);
+    }
+    if (code) {
+      records.push({ipsOffset: tempSym.vaddr + 0x100, code});
+      applied.push('MountTemporaryStorage->RamDisk');
+    } else {
+      const stub = Buffer.alloc(8);
+      stub.writeUInt32LE(0x52800000, 0); // mov w0, #0
+      stub.writeUInt32LE(0xd65f03c0, 4); // ret
+      records.push({ipsOffset: tempSym.vaddr + 0x100, code: stub});
+      applied.push('MountTemporaryStorage(stub)');
+    }
   }
 
   if (matchedOeHook && syms.has(LOGO_SYM) && syms.has(matchedOeHook)) {
     const finishSym = syms.get(LOGO_SYM);
     const hookSym = syms.get(matchedOeHook);
-    const textSeg = readNsoSegment(sdkInfo.raw, 0);
     const relStart = hookSym.vaddr - textSeg.vaddr;
     const fnLen = hookSym.size || 0x50;
     if (relStart >= 0 && relStart + fnLen <= textSeg.data.length) {
@@ -278,6 +407,20 @@ function copyCleanExefsDir(srcExefsDir, dstExefsDir) {
   fs.mkdirSync(dstExefsDir, {recursive: true});
   for (const f of nsoList) {
     copyFileStream(f.full, path.join(dstExefsDir, f.name));
+  }
+  // Export ONLY the 128-byte unsigned META header (SystemResourceSize / MainThreadStackSize)
+  // so KaiVesper can auto-merge resource limits into any Host's signed main.npdm on console!
+  const srcNpdm = path.join(srcExefsDir, 'main.npdm');
+  if (fs.existsSync(srcNpdm)) {
+    try {
+      const fd = fs.openSync(srcNpdm, 'r');
+      const meta = Buffer.alloc(128);
+      const n = fs.readSync(fd, meta, 0, 128, 0);
+      fs.closeSync(fd);
+      if (n === 128 && meta.toString('ascii', 0, 4) === 'META') {
+        fs.writeFileSync(path.join(dstExefsDir, 'meta.bin'), meta);
+      }
+    } catch {}
   }
   return {modules: nsoList.map(f => f.name), totalBytes};
 }
@@ -622,6 +765,117 @@ function prepareSw1({exefsPath = null, romfsPath = null, patchesDir = null, game
   }
 }
 
+/* Mode 3: Scan all existing games already on MicroSD (/ns2jb-modloader/sw1, /sw2, /contents/.../games)
+ * and apply universal compatibility patches (FinishStartupLogo, MountTemporaryStorage->RamDisk, meta.bin)
+ * in-place without re-extracting or re-copying romfs.bin! */
+function patchExistingSdGames({sdDrive = null}) {
+  const letter = String(sdDrive || '').replace(/[^A-Za-z]/g, '').toUpperCase();
+  if (!letter) fail('Select a MicroSD drive letter first.');
+  const baseRoot = `${letter}:\\ns2jb-modloader`;
+  if (!fs.existsSync(baseRoot)) fail(`Folder not found on MicroSD: ${baseRoot}`);
+
+  const targets = [];
+  for (const gen of ['sw2', 'sw1']) {
+    const dir = path.join(baseRoot, gen);
+    if (!fs.existsSync(dir)) continue;
+    for (const ent of fs.readdirSync(dir, {withFileTypes: true})) {
+      if (ent.isDirectory() && !ent.name.startsWith('.')) {
+        targets.push({label: `${gen}/${ent.name}`, dir: path.join(dir, ent.name), gen});
+      }
+    }
+  }
+  const contentsDir = path.join(baseRoot, 'contents');
+  if (fs.existsSync(contentsDir)) {
+    for (const tidEnt of fs.readdirSync(contentsDir, {withFileTypes: true})) {
+      if (!tidEnt.isDirectory() || !/^0[14][0-9a-f]{14}$/i.test(tidEnt.name)) continue;
+      const gen = tidEnt.name.startsWith('01') ? 'sw1' : 'sw2';
+      const gamesDir = path.join(contentsDir, tidEnt.name, 'games');
+      if (!fs.existsSync(gamesDir)) continue;
+      for (const ent of fs.readdirSync(gamesDir, {withFileTypes: true})) {
+        if (ent.isDirectory() && !ent.name.startsWith('.')) {
+          targets.push({label: `contents/${tidEnt.name}/${ent.name}`, dir: path.join(gamesDir, ent.name), gen});
+        }
+      }
+    }
+  }
+
+  if (!targets.length) {
+    console.log(`No game profiles found inside ${baseRoot}.`);
+    return baseRoot;
+  }
+
+  console.log(`Scanning ${targets.length} existing profile(s) on ${baseRoot}...\n`);
+  let updated = 0;
+
+  for (const item of targets) {
+    const exefsDir = path.join(item.dir, 'exefs');
+    const hasExefsDir = fs.existsSync(exefsDir) && fs.statSync(exefsDir).isDirectory();
+    const hasExefsNsp = fs.existsSync(path.join(item.dir, 'exefs.nsp'));
+
+    if (!hasExefsDir) {
+      if (hasExefsNsp) {
+        console.log(`[SKIP] ${item.label}: uses legacy exefs.nsp (re-prepare or unpack to exefs/ for universal Host support)`);
+      } else {
+        console.log(`[SKIP] ${item.label}: RomFS-only profile (no exefs/ folder)`);
+      }
+      continue;
+    }
+
+    let changed = false;
+    try {
+      const patch = detectAutoSdkPatches(exefsDir);
+      if (patch) {
+        const patchDir = path.join(item.dir, 'exefs_patches');
+        fs.mkdirSync(patchDir, {recursive: true});
+        const outFile = path.join(patchDir, patch.buildId + '.ips32');
+        const prev = fs.existsSync(outFile) ? fs.readFileSync(outFile) : null;
+        if (!prev || !prev.equals(patch.bytes)) {
+          fs.writeFileSync(outFile, patch.bytes);
+          console.log(`[PATCHED] ${item.label}: exefs_patches/${patch.buildId}.ips32 (${patch.applied.join(' + ')})`);
+          changed = true;
+        } else {
+          console.log(`[OK]      ${item.label}: SDK patch already up to date (${patch.applied.join(' + ')})`);
+        }
+      } else {
+        console.log(`[OK]      ${item.label}: no SDK IPS patch needed`);
+      }
+    } catch (e) {
+      console.log(`[WARN]    ${item.label}: skipped SDK patch check (${e.message})`);
+    }
+
+    const metaPath = path.join(exefsDir, 'meta.bin');
+    if (!fs.existsSync(metaPath)) {
+      const npdmPath = path.join(exefsDir, 'main.npdm');
+      if (fs.existsSync(npdmPath)) {
+        try {
+          const fd = fs.openSync(npdmPath, 'r');
+          const meta = Buffer.alloc(128);
+          const n = fs.readSync(fd, meta, 0, 128, 0);
+          fs.closeSync(fd);
+          if (n === 128 && meta.toString('ascii', 0, 4) === 'META') {
+            fs.writeFileSync(metaPath, meta);
+            console.log(`[META]    ${item.label}: exported exefs/meta.bin from main.npdm`);
+            changed = true;
+          }
+        } catch {}
+      } else if (item.gen === 'sw2') {
+        const meta = Buffer.alloc(128);
+        meta.write('META', 0, 'ascii');
+        meta.writeUInt32LE(0x3000000, 0x14); // 48 MB SystemResourceSize floor
+        meta.writeUInt32LE(0x200000, 0x1c);  // 2 MB MainThreadStackSize floor
+        fs.writeFileSync(metaPath, meta);
+        console.log(`[META]    ${item.label}: created exefs/meta.bin (48 MB SystemResourceSize / 2 MB Stack)`);
+        changed = true;
+      }
+    }
+
+    if (changed) updated++;
+  }
+
+  console.log(`\nDONE! Scanned ${targets.length} profile(s) on ${baseRoot} — updated ${updated}.`);
+  return baseRoot;
+}
+
 if (require.main === module) {
   const args = process.argv.slice(2);
   try {
@@ -629,9 +883,12 @@ if (require.main === module) {
       prepareNup(JSON.parse(args[1]));
     } else if (args[0] === '--prepare-sw1-json') {
       prepareSw1(JSON.parse(args[1]));
+    } else if (args[0] === '--patch-sd-json') {
+      patchExistingSdGames(JSON.parse(args[1]));
     } else {
       console.log('Usage: node prepare-win.cjs --prepare-json \'{"nupPath":"...","gameName":"..."}\'');
       console.log('   or: node prepare-win.cjs --prepare-sw1-json \'{"exefsPath":"...","romfsPath":"...","gameName":"..."}\'');
+      console.log('   or: node prepare-win.cjs --patch-sd-json \'{"sdDrive":"D"}\'');
     }
   } catch (err) {
     console.error('ERROR: ' + (err.message || err));
@@ -639,4 +896,4 @@ if (require.main === module) {
   }
 }
 
-module.exports = {resolveWindowsNup, nupEnv, prepareNup, prepareSw1, inspectSw1Folder, detectAutoSdkPatches, VENV_DIR, DEFAULT_OUT_BASE};
+module.exports = {resolveWindowsNup, nupEnv, prepareNup, prepareSw1, patchExistingSdGames, inspectSw1Folder, detectAutoSdkPatches, VENV_DIR, DEFAULT_OUT_BASE};

@@ -87,13 +87,14 @@
         <div class="field full">
           <label class="check">
             <input type="checkbox" id="auto-patch" checked />
-            <span data-i18n-html="lblAutoPatch">Auto-patch <code>MountTemporaryStorage</code> (23-byte .ips32 if needed — recommended)</span>
+            <span data-i18n-html="lblAutoPatch">Auto-patch SDK compatibility (<code>FinishStartupLogo</code> + <code>MountTemporaryStorage -&gt; RamDisk</code> + <code>meta.bin</code> — recommended)</span>
           </label>
         </div>
       </div>
 
       <div class="actions">
         <button class="btn primary" id="btn-start" data-i18n="btnStart">Extract &amp; Place on SD</button>
+        <button class="btn accent" id="btn-patch-sd" data-i18n="btnPatchSd">Patch Existing SD Games</button>
         <button class="btn danger hidden" id="btn-stop" data-i18n="btnStop">Cancel</button>
         <button class="btn ghost hidden" id="btn-open-out" data-i18n="btnOpenOut">Open output folder</button>
       </div>
@@ -175,6 +176,7 @@
 
       <div class="actions">
         <button class="btn primary" id="btn-sw1-start" data-i18n="btnSw1Start">Install ExeFS + RomFS to SD</button>
+        <button class="btn accent" id="btn-sw1-patch-sd" data-i18n="btnPatchSd">Patch Existing SD Games</button>
         <button class="btn danger hidden" id="btn-sw1-stop" data-i18n="btnStop">Cancel</button>
         <button class="btn ghost hidden" id="btn-sw1-open-out" data-i18n="btnOpenOut">Open output folder</button>
       </div>

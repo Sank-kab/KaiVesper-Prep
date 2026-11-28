@@ -34,8 +34,9 @@ window.KVP_I18N = {
     lblSdDrive: 'MicroSD Drive',
     lblOutDir: 'Local output folder',
     phOutDir: 'Blank = default folder',
-    lblAutoPatch: 'Auto-patch <code>MountTemporaryStorage</code> (23-byte .ips32 if needed — recommended)',
+    lblAutoPatch: 'Auto-patch SDK compatibility (<code>FinishStartupLogo</code> + <code>MountTemporaryStorage -> RamDisk</code> + <code>meta.bin</code> — recommended)',
     btnStart: 'Extract & Place on SD',
+    btnPatchSd: 'Patch Existing SD Games',
     btnStop: 'Cancel',
     btnOpenOut: 'Open output folder',
     lblSw1Parent: 'Quick pick: Game folder containing exefs/ & romfs/ (auto-fills below)',
@@ -89,6 +90,8 @@ window.KVP_I18N = {
     toastKhLaunchStarted: 'kaiHEN launcher started! Watch for the SmileBASIC command.',
     toastKhMissingDir: 'Select or build a patched kaiHEN folder first.',
     toastCopied: 'Copied to clipboard!',
+    toastPatchSdStarted: 'Scanning & patching games already on MicroSD...',
+    toastNoSdDrive: 'Select a MicroSD drive first.',
     toastStopped: 'Server stopped. You can close this window.'
   },
   it: {
@@ -125,8 +128,9 @@ window.KVP_I18N = {
     lblSdDrive: 'Drive MicroSD',
     lblOutDir: 'Cartella locale',
     phOutDir: 'Vuoto = cartella predefinita',
-    lblAutoPatch: 'Auto-patch <code>MountTemporaryStorage</code> (.ips32 da 23 byte se serve — consigliato)',
+    lblAutoPatch: 'Auto-patch compatibilità SDK (<code>FinishStartupLogo</code> + <code>MountTemporaryStorage -> RamDisk</code> + <code>meta.bin</code> — consigliato)',
     btnStart: 'Estrai & Copia su SD',
+    btnPatchSd: 'Patcha giochi già su SD',
     btnStop: 'Annulla',
     btnOpenOut: 'Apri cartella risultato',
     lblSw1Parent: 'Selezione rapida: Cartella gioco con dentro exefs/ e romfs/ (compila tutto)',
@@ -180,6 +184,8 @@ window.KVP_I18N = {
     toastKhLaunchStarted: 'Launcher kaiHEN avviato! Attendi il comando SmileBASIC.',
     toastKhMissingDir: 'Seleziona o crea prima una cartella kaiHEN patchata.',
     toastCopied: 'Copiato negli appunti!',
+    toastPatchSdStarted: 'Scansione e patch dei giochi già su MicroSD...',
+    toastNoSdDrive: 'Seleziona prima un drive MicroSD.',
     toastStopped: 'Server spento. Puoi chiudere questa finestra.'
   },
   es: {
@@ -216,8 +222,9 @@ window.KVP_I18N = {
     lblSdDrive: 'Unidad MicroSD',
     lblOutDir: 'Carpeta local',
     phOutDir: 'Vacío = carpeta predeterminada',
-    lblAutoPatch: 'Auto-parche <code>MountTemporaryStorage</code> (.ips32 de 23 bytes si hace falta)',
+    lblAutoPatch: 'Auto-parche compatibilidad SDK (<code>FinishStartupLogo</code> + <code>MountTemporaryStorage -> RamDisk</code> + <code>meta.bin</code>)',
     btnStart: 'Extraer y Copiar a SD',
+    btnPatchSd: 'Parchear juegos ya en SD',
     btnStop: 'Cancelar',
     btnOpenOut: 'Abrir carpeta de salida',
     lblSw1Parent: 'Selección rápida: Carpeta con exefs/ y romfs/ (autocompleta)',
@@ -271,6 +278,8 @@ window.KVP_I18N = {
     toastKhLaunchStarted: '¡Lanzador kaiHEN iniciado! Espera el comando SmileBASIC.',
     toastKhMissingDir: 'Selecciona o compila primero una carpeta kaiHEN parcheada.',
     toastCopied: '¡Copiado al portapapeles!',
+    toastPatchSdStarted: 'Escaneando y parcheando juegos en MicroSD...',
+    toastNoSdDrive: 'Selecciona primero una unidad MicroSD.',
     toastStopped: 'Servidor detenido.'
   },
   fr: {
@@ -307,8 +316,9 @@ window.KVP_I18N = {
     lblSdDrive: 'Lecteur MicroSD',
     lblOutDir: 'Dossier local',
     phOutDir: 'Vide = dossier par défaut',
-    lblAutoPatch: 'Auto-patch <code>MountTemporaryStorage</code> (.ips32 de 23 octets si besoin)',
+    lblAutoPatch: 'Auto-patch compatibilité SDK (<code>FinishStartupLogo</code> + <code>MountTemporaryStorage -> RamDisk</code> + <code>meta.bin</code>)',
     btnStart: 'Extraire & Copier sur SD',
+    btnPatchSd: 'Patcher les jeux déjà sur SD',
     btnStop: 'Annuler',
     btnOpenOut: 'Ouvrir le dossier',
     lblSw1Parent: 'Sélection rapide : Dossier contenant exefs/ et romfs/',
@@ -362,6 +372,8 @@ window.KVP_I18N = {
     toastKhLaunchStarted: 'Lanceur kaiHEN démarré ! Surveillez la commande SmileBASIC.',
     toastKhMissingDir: 'Sélectionnez ou compilez d\'abord un dossier kaiHEN patché.',
     toastCopied: 'Copié dans le presse-papiers !',
+    toastPatchSdStarted: 'Analyse et patch des jeux déjà sur MicroSD...',
+    toastNoSdDrive: 'Sélectionnez d\'abord un lecteur MicroSD.',
     toastStopped: 'Serveur arrêté.'
   },
   de: {
@@ -398,8 +410,9 @@ window.KVP_I18N = {
     lblSdDrive: 'MicroSD-Laufwerk',
     lblOutDir: 'Lokaler Ordner',
     phOutDir: 'Leer = Standardordner',
-    lblAutoPatch: 'Auto-Patch <code>MountTemporaryStorage</code> (23-Byte .ips32 falls nötig)',
+    lblAutoPatch: 'SDK-Kompatibilität Auto-Patch (<code>FinishStartupLogo</code> + <code>MountTemporaryStorage -> RamDisk</code> + <code>meta.bin</code>)',
     btnStart: 'Extrahieren & auf SD kopieren',
+    btnPatchSd: 'Vorhandene SD-Spiele patchen',
     btnStop: 'Abbrechen',
     btnOpenOut: 'Ausgabeordner öffnen',
     lblSw1Parent: 'Schnellwahl: Spielordner mit exefs/ & romfs/',
@@ -453,6 +466,8 @@ window.KVP_I18N = {
     toastKhLaunchStarted: 'kaiHEN-Launcher gestartet! Achte auf den SmileBASIC-Befehl.',
     toastKhMissingDir: 'Bitte zuerst einen gepatchten kaiHEN-Ordner wählen oder bauen.',
     toastCopied: 'In Zwischenablage kopiert!',
+    toastPatchSdStarted: 'Scanne & patche vorhandene Spiele auf MicroSD...',
+    toastNoSdDrive: 'Bitte zuerst ein MicroSD-Laufwerk wählen.',
     toastStopped: 'Server beendet.'
   },
   ja: {
@@ -489,8 +504,9 @@ window.KVP_I18N = {
     lblSdDrive: 'MicroSD ドライブ',
     lblOutDir: 'ローカル出力先',
     phOutDir: '空欄 = 既定フォルダ',
-    lblAutoPatch: '<code>MountTemporaryStorage</code> 自動パッチ (必要時 23B .ips32 生成・推奨)',
+    lblAutoPatch: 'SDK互換自動パッチ (<code>FinishStartupLogo</code> + <code>MountTemporaryStorage -> RamDisk</code> + <code>meta.bin</code>・推奨)',
     btnStart: '抽出して SD に配置',
+    btnPatchSd: 'SD上の既存ゲームにパッチ適用',
     btnStop: 'キャンセル',
     btnOpenOut: '出力フォルダを開く',
     lblSw1Parent: 'クイック選択: exefs/ と romfs/ を含む親フォルダ',
@@ -544,6 +560,8 @@ window.KVP_I18N = {
     toastKhLaunchStarted: 'kaiHEN ランチャーを開始しました！SmileBASIC コマンドを確認してください。',
     toastKhMissingDir: '先にパッチ済み kaiHEN フォルダを選択またはビルドしてください。',
     toastCopied: 'クリップボードにコピーしました！',
+    toastPatchSdStarted: 'MicroSD上の既存ゲームをスキャン＆パッチ中...',
+    toastNoSdDrive: '先に MicroSD ドライブを選択してください。',
     toastStopped: 'サーバーを停止しました。'
   }
 };
